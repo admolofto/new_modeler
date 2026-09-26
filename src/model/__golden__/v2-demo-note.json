@@ -1,0 +1,1936 @@
+{
+  "version": 2,
+  "pluginVersions": {
+    "shape:box": 1,
+    "shape:outline": 1,
+    "feature:hole": 1,
+    "feature:pocket": 1,
+    "feature:edgeProfile": 1,
+    "generator:carcass": 1
+  },
+  "materials": {
+    "ply-3-4": {
+      "id": "ply-3-4",
+      "name": "3/4\" plywood",
+      "thickness": 46,
+      "color": "#d9b98b",
+      "stock": "sheet"
+    },
+    "ply-1-2": {
+      "id": "ply-1-2",
+      "name": "1/2\" plywood",
+      "thickness": 30,
+      "color": "#dcc095",
+      "stock": "sheet"
+    },
+    "ply-1-4": {
+      "id": "ply-1-4",
+      "name": "1/4\" plywood",
+      "thickness": 14,
+      "color": "#e6cfa6",
+      "stock": "sheet"
+    },
+    "maple-4-4": {
+      "id": "maple-4-4",
+      "name": "4/4 maple (S4S 3/4\")",
+      "thickness": 48,
+      "color": "#ecd9b0",
+      "stock": "solid"
+    }
+  },
+  "parts": {
+    "a1.side-left": {
+      "id": "a1.side-left",
+      "role": "side-left",
+      "name": "Left side",
+      "material": "ply-3-4",
+      "grain": "y",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 46,
+          "y": 2208,
+          "z": 1536
+        }
+      },
+      "features": [
+        {
+          "id": "f1",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              128,
+              640
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f2",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              128,
+              720
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f3",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              128,
+              800
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f4",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              128,
+              880
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f5",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              128,
+              960
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f6",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              128,
+              1040
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f7",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              128,
+              1120
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f8",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              128,
+              1200
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f9",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              128,
+              1280
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f10",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              128,
+              1360
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f11",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              128,
+              1440
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f12",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              128,
+              1520
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f13",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              128,
+              1600
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f14",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              1408,
+              640
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f15",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              1408,
+              720
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f16",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              1408,
+              800
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f17",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              1408,
+              880
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f18",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              1408,
+              960
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f19",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              1408,
+              1040
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f20",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              1408,
+              1120
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f21",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              1408,
+              1200
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f22",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              1408,
+              1280
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f23",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              1408,
+              1360
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f24",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              1408,
+              1440
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f25",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              1408,
+              1520
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f26",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              1408,
+              1600
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        }
+      ]
+    },
+    "a1.side-right": {
+      "id": "a1.side-right",
+      "role": "side-right",
+      "name": "Right side",
+      "material": "ply-3-4",
+      "grain": "y",
+      "transform": {
+        "position": [
+          2258,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 46,
+          "y": 2208,
+          "z": 1536
+        }
+      },
+      "features": [
+        {
+          "id": "f1",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              768,
+              1536
+            ],
+            "d": 64
+          }
+        },
+        {
+          "id": "f2",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              128,
+              640
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f3",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              128,
+              720
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f4",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              128,
+              800
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f5",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              128,
+              880
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f6",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              128,
+              960
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f7",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              128,
+              1040
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f8",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              128,
+              1120
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f9",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              128,
+              1200
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f10",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              128,
+              1280
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f11",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              128,
+              1360
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f12",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              128,
+              1440
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f13",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              128,
+              1520
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f14",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              128,
+              1600
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f15",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              1408,
+              640
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f16",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              1408,
+              720
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f17",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              1408,
+              800
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f18",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              1408,
+              880
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f19",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              1408,
+              960
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f20",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              1408,
+              1040
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f21",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              1408,
+              1120
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f22",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              1408,
+              1200
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f23",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              1408,
+              1280
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f24",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              1408,
+              1360
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f25",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              1408,
+              1440
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f26",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              1408,
+              1520
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f27",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              1408,
+              1600
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        }
+      ]
+    },
+    "a1.bottom": {
+      "id": "a1.bottom",
+      "role": "bottom",
+      "name": "Bottom",
+      "material": "ply-3-4",
+      "grain": "x",
+      "transform": {
+        "position": [
+          46,
+          256,
+          14
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 2212,
+          "y": 46,
+          "z": 1522
+        }
+      },
+      "features": []
+    },
+    "a1.top": {
+      "id": "a1.top",
+      "role": "top",
+      "name": "Top",
+      "material": "ply-3-4",
+      "grain": "x",
+      "transform": {
+        "position": [
+          46,
+          2162,
+          14
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 2212,
+          "y": 46,
+          "z": 1522
+        }
+      },
+      "features": []
+    },
+    "a1.back": {
+      "id": "a1.back",
+      "role": "back",
+      "name": "Back",
+      "material": "ply-1-4",
+      "grain": "y",
+      "transform": {
+        "position": [
+          46,
+          256,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 2212,
+          "y": 1952,
+          "z": 14
+        }
+      },
+      "features": []
+    },
+    "a1.kick": {
+      "id": "a1.kick",
+      "role": "kick",
+      "name": "Toe kick",
+      "material": "ply-3-4",
+      "grain": "x",
+      "transform": {
+        "position": [
+          46,
+          0,
+          1298
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 2212,
+          "y": 256,
+          "z": 46
+        }
+      },
+      "features": []
+    },
+    "a1.shelf-1": {
+      "id": "a1.shelf-1",
+      "role": "shelf-1",
+      "name": "Shelf 1",
+      "material": "ply-3-4",
+      "grain": "x",
+      "transform": {
+        "position": [
+          48,
+          1209,
+          14
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 2208,
+          "y": 46,
+          "z": 1506
+        }
+      },
+      "features": []
+    },
+    "tabletop": {
+      "id": "tabletop",
+      "name": "Tabletop",
+      "material": "maple-4-4",
+      "grain": "x",
+      "transform": {
+        "position": [
+          -48,
+          2208,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "outline",
+        "params": {
+          "axis": "y",
+          "thickness": 48,
+          "points": [
+            {
+              "id": "bl",
+              "at": [
+                0,
+                0
+              ],
+              "r": 64
+            },
+            {
+              "id": "br",
+              "at": [
+                2400,
+                0
+              ],
+              "r": 64
+            },
+            {
+              "id": "fr",
+              "at": [
+                2400,
+                1600
+              ],
+              "r": 64
+            },
+            {
+              "id": "fl",
+              "at": [
+                0,
+                1600
+              ],
+              "r": 64
+            }
+          ]
+        }
+      },
+      "features": [
+        {
+          "id": "f1",
+          "type": "edgeProfile",
+          "params": {
+            "edges": [
+              "edge:top-bl",
+              "edge:top-br",
+              "edge:top-fr",
+              "edge:top-fl"
+            ],
+            "profile": "roundover",
+            "r": 16
+          }
+        }
+      ]
+    },
+    "door": {
+      "id": "door",
+      "name": "Door",
+      "material": "ply-3-4",
+      "grain": "y",
+      "transform": {
+        "position": [
+          2688,
+          256,
+          384
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 1136,
+          "y": 1936,
+          "z": 46
+        }
+      },
+      "features": [
+        {
+          "id": "f1",
+          "type": "edgeProfile",
+          "params": {
+            "edges": [
+              "edge:top-front",
+              "edge:bottom-front",
+              "edge:front-left",
+              "edge:front-right"
+            ],
+            "profile": "roundover",
+            "r": 8
+          }
+        },
+        {
+          "id": "f2",
+          "type": "hole",
+          "params": {
+            "face": "face:back",
+            "at": [
+              57,
+              192
+            ],
+            "d": 88,
+            "depth": 32
+          }
+        },
+        {
+          "id": "f3",
+          "type": "hole",
+          "params": {
+            "face": "face:back",
+            "at": [
+              57,
+              1744
+            ],
+            "d": 88,
+            "depth": 32
+          }
+        }
+      ]
+    }
+  },
+  "assemblies": {
+    "a1": {
+      "id": "a1",
+      "name": "Base cabinet",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "children": [
+        "a1.side-left",
+        "a1.side-right",
+        "a1.bottom",
+        "a1.top",
+        "a1.back",
+        "a1.kick",
+        "a1.shelf-1"
+      ],
+      "generator": {
+        "type": "carcass",
+        "params": {
+          "width": 2304,
+          "height": 2208,
+          "depth": 1536,
+          "material": "ply-3-4",
+          "back": "inset",
+          "backMaterial": "ply-1-4",
+          "toeKick": {
+            "height": 256,
+            "depth": 192
+          },
+          "shelves": 1,
+          "joinery": "dado",
+          "drawers": []
+        },
+        "overrides": {
+          "side-right": {
+            "features": [
+              {
+                "id": "f1",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    768,
+                    1536
+                  ],
+                  "d": 64
+                }
+              },
+              {
+                "id": "f2",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    128,
+                    640
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f3",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    128,
+                    720
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f4",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    128,
+                    800
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f5",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    128,
+                    880
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f6",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    128,
+                    960
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f7",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    128,
+                    1040
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f8",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    128,
+                    1120
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f9",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    128,
+                    1200
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f10",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    128,
+                    1280
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f11",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    128,
+                    1360
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f12",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    128,
+                    1440
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f13",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    128,
+                    1520
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f14",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    128,
+                    1600
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f15",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    1408,
+                    640
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f16",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    1408,
+                    720
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f17",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    1408,
+                    800
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f18",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    1408,
+                    880
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f19",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    1408,
+                    960
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f20",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    1408,
+                    1040
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f21",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    1408,
+                    1120
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f22",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    1408,
+                    1200
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f23",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    1408,
+                    1280
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f24",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    1408,
+                    1360
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f25",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    1408,
+                    1440
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f26",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    1408,
+                    1520
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f27",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    1408,
+                    1600
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              }
+            ]
+          },
+          "side-left": {
+            "features": [
+              {
+                "id": "f1",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    128,
+                    640
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f2",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    128,
+                    720
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f3",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    128,
+                    800
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f4",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    128,
+                    880
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f5",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    128,
+                    960
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f6",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    128,
+                    1040
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f7",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    128,
+                    1120
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f8",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    128,
+                    1200
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f9",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    128,
+                    1280
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f10",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    128,
+                    1360
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f11",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    128,
+                    1440
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f12",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    128,
+                    1520
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f13",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    128,
+                    1600
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f14",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    1408,
+                    640
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f15",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    1408,
+                    720
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f16",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    1408,
+                    800
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f17",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    1408,
+                    880
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f18",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    1408,
+                    960
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f19",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    1408,
+                    1040
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f20",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    1408,
+                    1120
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f21",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    1408,
+                    1200
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f22",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    1408,
+                    1280
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f23",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    1408,
+                    1360
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f24",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    1408,
+                    1440
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f25",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    1408,
+                    1520
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f26",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    1408,
+                    1600
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "joints": {
+    "a1.j.bottom-left": {
+      "id": "a1.j.bottom-left",
+      "role": "bottom-left",
+      "type": "dado",
+      "parts": [
+        "a1.side-left",
+        "a1.bottom"
+      ],
+      "params": {
+        "depth": 16
+      }
+    },
+    "a1.j.bottom-right": {
+      "id": "a1.j.bottom-right",
+      "role": "bottom-right",
+      "type": "dado",
+      "parts": [
+        "a1.side-right",
+        "a1.bottom"
+      ],
+      "params": {
+        "depth": 16
+      }
+    },
+    "a1.j.top-left": {
+      "id": "a1.j.top-left",
+      "role": "top-left",
+      "type": "dado",
+      "parts": [
+        "a1.side-left",
+        "a1.top"
+      ],
+      "params": {
+        "depth": 16
+      }
+    },
+    "a1.j.top-right": {
+      "id": "a1.j.top-right",
+      "role": "top-right",
+      "type": "dado",
+      "parts": [
+        "a1.side-right",
+        "a1.top"
+      ],
+      "params": {
+        "depth": 16
+      }
+    },
+    "a1.j.back-left": {
+      "id": "a1.j.back-left",
+      "role": "back-left",
+      "type": "rabbet",
+      "parts": [
+        "a1.side-left",
+        "a1.back"
+      ],
+      "params": {
+        "depth": 14
+      }
+    },
+    "a1.j.back-right": {
+      "id": "a1.j.back-right",
+      "role": "back-right",
+      "type": "rabbet",
+      "parts": [
+        "a1.side-right",
+        "a1.back"
+      ],
+      "params": {
+        "depth": 14
+      }
+    },
+    "a1.j.kick-left": {
+      "id": "a1.j.kick-left",
+      "role": "kick-left",
+      "type": "butt",
+      "parts": [
+        "a1.side-left",
+        "a1.kick"
+      ],
+      "params": {}
+    },
+    "a1.j.kick-right": {
+      "id": "a1.j.kick-right",
+      "role": "kick-right",
+      "type": "butt",
+      "parts": [
+        "a1.side-right",
+        "a1.kick"
+      ],
+      "params": {}
+    }
+  },
+  "annotations": {
+    "n1": {
+      "id": "n1",
+      "note": "Top should overhang 1 1/2\" at the front",
+      "targets": [
+        {
+          "node": "tabletop",
+          "handle": "face:side-fr",
+          "at": [
+            1200,
+            24,
+            1600
+          ]
+        },
+        {
+          "node": "a1.side-right",
+          "handle": "face:front"
+        }
+      ],
+      "resolved": false
+    }
+  },
+  "roots": [
+    "a1",
+    "tabletop",
+    "door"
+  ]
+}

@@ -1,0 +1,62 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
+      "port": 5173
+    },
+    {
+      "name": "dev-alt",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "--configLoader",
+        "runner",
+        "--port",
+        "5174"
+      ],
+      "port": 5174
+    },
+    {
+      "name": "dev-alt2",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "--configLoader",
+        "runner",
+        "--port",
+        "5175"
+      ],
+      "port": 5175
+    },
+    {
+      "name": "dev-voice",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "--configLoader",
+        "runner",
+        "--port",
+        "5176"
+      ],
+      "port": 5176
+    },
+    {
+      "name": "dev-p4",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "--configLoader",
+        "runner",
+        "--port",
+        "5177"
+      ],
+      "port": 5177
+    }
+  ]
+}

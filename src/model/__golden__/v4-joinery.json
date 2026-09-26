@@ -1,0 +1,1230 @@
+{
+  "version": 4,
+  "pluginVersions": {
+    "shape:box": 1,
+    "shape:outline": 1,
+    "feature:hole": 1,
+    "feature:pocket": 1,
+    "feature:edgeProfile": 1,
+    "feature:dado": 1,
+    "generator:carcass": 1
+  },
+  "materials": {
+    "ply-3-4": {
+      "id": "ply-3-4",
+      "name": "3/4\" plywood",
+      "thickness": 46,
+      "color": "#d9b98b",
+      "stock": "sheet",
+      "price": 68
+    },
+    "ply-1-2": {
+      "id": "ply-1-2",
+      "name": "1/2\" plywood",
+      "thickness": 30,
+      "color": "#dcc095",
+      "stock": "sheet"
+    },
+    "ply-1-4": {
+      "id": "ply-1-4",
+      "name": "1/4\" plywood",
+      "thickness": 14,
+      "color": "#e6cfa6",
+      "stock": "sheet"
+    },
+    "maple-4-4": {
+      "id": "maple-4-4",
+      "name": "4/4 maple (S4S 3/4\")",
+      "thickness": 48,
+      "color": "#ecd9b0",
+      "stock": "solid"
+    },
+    "baltic-18": {
+      "id": "baltic-18",
+      "name": "18mm Baltic birch",
+      "thickness": 45,
+      "color": "#e8d3ad",
+      "stock": "sheet",
+      "sheet": [
+        3840,
+        3840
+      ],
+      "price": 95
+    }
+  },
+  "parts": {
+    "a1.side-left": {
+      "id": "a1.side-left",
+      "role": "side-left",
+      "name": "Left side",
+      "material": "ply-3-4",
+      "grain": "y",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 46,
+          "y": 2208,
+          "z": 1536
+        }
+      },
+      "features": [],
+      "joinery": [
+        {
+          "id": "a1_j_bottom-left",
+          "type": "dado",
+          "params": {
+            "face": "face:right",
+            "from": [
+              14,
+              256
+            ],
+            "to": [
+              1536,
+              302
+            ],
+            "depth": 16
+          },
+          "joint": "a1.j.bottom-left"
+        },
+        {
+          "id": "a1_j_top-left",
+          "type": "dado",
+          "params": {
+            "face": "face:right",
+            "from": [
+              14,
+              2162
+            ],
+            "to": [
+              1536,
+              2208
+            ],
+            "depth": 16
+          },
+          "joint": "a1.j.top-left"
+        },
+        {
+          "id": "a1_j_back-left",
+          "type": "dado",
+          "params": {
+            "face": "face:right",
+            "from": [
+              0,
+              256
+            ],
+            "to": [
+              14,
+              2208
+            ],
+            "depth": 24
+          },
+          "joint": "a1.j.back-left"
+        }
+      ]
+    },
+    "a1.side-right": {
+      "id": "a1.side-right",
+      "role": "side-right",
+      "name": "Right side",
+      "material": "ply-3-4",
+      "grain": "y",
+      "transform": {
+        "position": [
+          2258,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 46,
+          "y": 2208,
+          "z": 1536
+        }
+      },
+      "features": [],
+      "joinery": [
+        {
+          "id": "a1_j_bottom-right",
+          "type": "dado",
+          "params": {
+            "face": "face:left",
+            "from": [
+              14,
+              256
+            ],
+            "to": [
+              1536,
+              302
+            ],
+            "depth": 16
+          },
+          "joint": "a1.j.bottom-right"
+        },
+        {
+          "id": "a1_j_top-right",
+          "type": "dado",
+          "params": {
+            "face": "face:left",
+            "from": [
+              14,
+              2162
+            ],
+            "to": [
+              1536,
+              2208
+            ],
+            "depth": 16
+          },
+          "joint": "a1.j.top-right"
+        },
+        {
+          "id": "a1_j_back-right",
+          "type": "dado",
+          "params": {
+            "face": "face:left",
+            "from": [
+              0,
+              256
+            ],
+            "to": [
+              14,
+              2208
+            ],
+            "depth": 24
+          },
+          "joint": "a1.j.back-right"
+        }
+      ]
+    },
+    "a1.bottom": {
+      "id": "a1.bottom",
+      "role": "bottom",
+      "name": "Bottom",
+      "material": "ply-3-4",
+      "grain": "x",
+      "transform": {
+        "position": [
+          46,
+          256,
+          14
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 2212,
+          "y": 46,
+          "z": 1522
+        }
+      },
+      "features": []
+    },
+    "a1.top": {
+      "id": "a1.top",
+      "role": "top",
+      "name": "Top",
+      "material": "ply-3-4",
+      "grain": "x",
+      "transform": {
+        "position": [
+          46,
+          2162,
+          14
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 2212,
+          "y": 46,
+          "z": 1522
+        }
+      },
+      "features": []
+    },
+    "a1.back": {
+      "id": "a1.back",
+      "role": "back",
+      "name": "Back",
+      "material": "ply-1-4",
+      "grain": "y",
+      "transform": {
+        "position": [
+          46,
+          256,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 2212,
+          "y": 1952,
+          "z": 14
+        }
+      },
+      "features": []
+    },
+    "a1.kick": {
+      "id": "a1.kick",
+      "role": "kick",
+      "name": "Toe kick",
+      "material": "ply-3-4",
+      "grain": "x",
+      "transform": {
+        "position": [
+          46,
+          0,
+          1298
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 2212,
+          "y": 256,
+          "z": 46
+        }
+      },
+      "features": []
+    },
+    "a1.drawer-1-front": {
+      "id": "a1.drawer-1-front",
+      "role": "drawer-1-front",
+      "name": "Drawer 1 front",
+      "material": "ply-3-4",
+      "grain": "x",
+      "transform": {
+        "position": [
+          4,
+          1820,
+          1536
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 2296,
+          "y": 384,
+          "z": 46
+        }
+      },
+      "features": []
+    },
+    "a1.drawer-1-bottom": {
+      "id": "a1.drawer-1-bottom",
+      "role": "drawer-1-bottom",
+      "name": "Drawer 1 bottom",
+      "material": "ply-1-4",
+      "grain": "z",
+      "transform": {
+        "position": [
+          78,
+          1852,
+          46
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 2148,
+          "y": 14,
+          "z": 1458
+        }
+      },
+      "features": []
+    },
+    "a1.drawer-1-side-left": {
+      "id": "a1.drawer-1-side-left",
+      "role": "drawer-1-side-left",
+      "name": "Drawer 1 left side",
+      "material": "ply-1-2",
+      "grain": "z",
+      "transform": {
+        "position": [
+          78,
+          1866,
+          46
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 30,
+          "y": 264,
+          "z": 1458
+        }
+      },
+      "features": [],
+      "joinery": [
+        {
+          "id": "a1_j_drawer-1-back-left",
+          "type": "dado",
+          "params": {
+            "face": "face:right",
+            "from": [
+              0,
+              0
+            ],
+            "to": [
+              30,
+              264
+            ],
+            "depth": 15
+          },
+          "joint": "a1.j.drawer-1-back-left"
+        },
+        {
+          "id": "a1_j_drawer-1-sub-front-left",
+          "type": "dado",
+          "params": {
+            "face": "face:right",
+            "from": [
+              1428,
+              0
+            ],
+            "to": [
+              1458,
+              264
+            ],
+            "depth": 15
+          },
+          "joint": "a1.j.drawer-1-sub-front-left"
+        }
+      ]
+    },
+    "a1.drawer-1-side-right": {
+      "id": "a1.drawer-1-side-right",
+      "role": "drawer-1-side-right",
+      "name": "Drawer 1 right side",
+      "material": "ply-1-2",
+      "grain": "z",
+      "transform": {
+        "position": [
+          2196,
+          1866,
+          46
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 30,
+          "y": 264,
+          "z": 1458
+        }
+      },
+      "features": [],
+      "joinery": [
+        {
+          "id": "a1_j_drawer-1-back-right",
+          "type": "dado",
+          "params": {
+            "face": "face:left",
+            "from": [
+              0,
+              0
+            ],
+            "to": [
+              30,
+              264
+            ],
+            "depth": 15
+          },
+          "joint": "a1.j.drawer-1-back-right"
+        },
+        {
+          "id": "a1_j_drawer-1-sub-front-right",
+          "type": "dado",
+          "params": {
+            "face": "face:left",
+            "from": [
+              1428,
+              0
+            ],
+            "to": [
+              1458,
+              264
+            ],
+            "depth": 15
+          },
+          "joint": "a1.j.drawer-1-sub-front-right"
+        }
+      ]
+    },
+    "a1.drawer-1-back": {
+      "id": "a1.drawer-1-back",
+      "role": "drawer-1-back",
+      "name": "Drawer 1 back",
+      "material": "ply-1-2",
+      "grain": "x",
+      "transform": {
+        "position": [
+          108,
+          1866,
+          46
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 2088,
+          "y": 264,
+          "z": 30
+        }
+      },
+      "features": []
+    },
+    "a1.drawer-1-sub-front": {
+      "id": "a1.drawer-1-sub-front",
+      "role": "drawer-1-sub-front",
+      "name": "Drawer 1 sub-front",
+      "material": "ply-1-2",
+      "grain": "x",
+      "transform": {
+        "position": [
+          108,
+          1866,
+          1474
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 2088,
+          "y": 264,
+          "z": 30
+        }
+      },
+      "features": []
+    },
+    "a1.drawer-2-front": {
+      "id": "a1.drawer-2-front",
+      "role": "drawer-2-front",
+      "name": "Drawer 2 front",
+      "material": "ply-3-4",
+      "grain": "x",
+      "transform": {
+        "position": [
+          4,
+          256,
+          1536
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 2296,
+          "y": 1556,
+          "z": 46
+        }
+      },
+      "features": []
+    },
+    "a1.drawer-2-bottom": {
+      "id": "a1.drawer-2-bottom",
+      "role": "drawer-2-bottom",
+      "name": "Drawer 2 bottom",
+      "material": "ply-1-4",
+      "grain": "z",
+      "transform": {
+        "position": [
+          78,
+          334,
+          46
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 2148,
+          "y": 14,
+          "z": 1458
+        }
+      },
+      "features": []
+    },
+    "a1.drawer-2-side-left": {
+      "id": "a1.drawer-2-side-left",
+      "role": "drawer-2-side-left",
+      "name": "Drawer 2 left side",
+      "material": "ply-1-2",
+      "grain": "z",
+      "transform": {
+        "position": [
+          78,
+          348,
+          46
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 30,
+          "y": 1432,
+          "z": 1458
+        }
+      },
+      "features": [],
+      "joinery": [
+        {
+          "id": "a1_j_drawer-2-back-left",
+          "type": "dado",
+          "params": {
+            "face": "face:right",
+            "from": [
+              0,
+              0
+            ],
+            "to": [
+              30,
+              1432
+            ],
+            "depth": 15
+          },
+          "joint": "a1.j.drawer-2-back-left"
+        },
+        {
+          "id": "a1_j_drawer-2-sub-front-left",
+          "type": "dado",
+          "params": {
+            "face": "face:right",
+            "from": [
+              1428,
+              0
+            ],
+            "to": [
+              1458,
+              1432
+            ],
+            "depth": 15
+          },
+          "joint": "a1.j.drawer-2-sub-front-left"
+        }
+      ]
+    },
+    "a1.drawer-2-side-right": {
+      "id": "a1.drawer-2-side-right",
+      "role": "drawer-2-side-right",
+      "name": "Drawer 2 right side",
+      "material": "ply-1-2",
+      "grain": "z",
+      "transform": {
+        "position": [
+          2196,
+          348,
+          46
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 30,
+          "y": 1432,
+          "z": 1458
+        }
+      },
+      "features": [],
+      "joinery": [
+        {
+          "id": "a1_j_drawer-2-back-right",
+          "type": "dado",
+          "params": {
+            "face": "face:left",
+            "from": [
+              0,
+              0
+            ],
+            "to": [
+              30,
+              1432
+            ],
+            "depth": 15
+          },
+          "joint": "a1.j.drawer-2-back-right"
+        },
+        {
+          "id": "a1_j_drawer-2-sub-front-right",
+          "type": "dado",
+          "params": {
+            "face": "face:left",
+            "from": [
+              1428,
+              0
+            ],
+            "to": [
+              1458,
+              1432
+            ],
+            "depth": 15
+          },
+          "joint": "a1.j.drawer-2-sub-front-right"
+        }
+      ]
+    },
+    "a1.drawer-2-back": {
+      "id": "a1.drawer-2-back",
+      "role": "drawer-2-back",
+      "name": "Drawer 2 back",
+      "material": "ply-1-2",
+      "grain": "x",
+      "transform": {
+        "position": [
+          108,
+          348,
+          46
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 2088,
+          "y": 1432,
+          "z": 30
+        }
+      },
+      "features": []
+    },
+    "a1.drawer-2-sub-front": {
+      "id": "a1.drawer-2-sub-front",
+      "role": "drawer-2-sub-front",
+      "name": "Drawer 2 sub-front",
+      "material": "ply-1-2",
+      "grain": "x",
+      "transform": {
+        "position": [
+          108,
+          348,
+          1474
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 2088,
+          "y": 1432,
+          "z": 30
+        }
+      },
+      "features": []
+    },
+    "ws-l": {
+      "id": "ws-l",
+      "name": "Left upright",
+      "material": "baltic-18",
+      "grain": "y",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 45,
+          "y": 1536,
+          "z": 512
+        }
+      },
+      "features": [],
+      "joinery": [
+        {
+          "id": "j1",
+          "type": "dado",
+          "params": {
+            "face": "face:right",
+            "from": [
+              0,
+              640
+            ],
+            "to": [
+              512,
+              685
+            ],
+            "depth": 16
+          },
+          "joint": "j1"
+        }
+      ]
+    },
+    "ws-r": {
+      "id": "ws-r",
+      "name": "Right upright",
+      "material": "baltic-18",
+      "grain": "y",
+      "transform": {
+        "position": [
+          1453,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 45,
+          "y": 1536,
+          "z": 512
+        }
+      },
+      "features": [],
+      "joinery": [
+        {
+          "id": "j2",
+          "type": "dado",
+          "params": {
+            "face": "face:left",
+            "from": [
+              0,
+              640
+            ],
+            "to": [
+              512,
+              685
+            ],
+            "depth": 16
+          },
+          "joint": "j2"
+        }
+      ]
+    },
+    "ws-s": {
+      "id": "ws-s",
+      "name": "Shelf",
+      "material": "baltic-18",
+      "grain": "x",
+      "transform": {
+        "position": [
+          45,
+          640,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 1408,
+          "y": 45,
+          "z": 512
+        }
+      },
+      "features": []
+    }
+  },
+  "assemblies": {
+    "a1": {
+      "id": "a1",
+      "name": "Drawer base",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "children": [
+        "a1.side-left",
+        "a1.side-right",
+        "a1.bottom",
+        "a1.top",
+        "a1.back",
+        "a1.kick",
+        "a1.drawer-1-front",
+        "a1.drawer-1-bottom",
+        "a1.drawer-1-side-left",
+        "a1.drawer-1-side-right",
+        "a1.drawer-1-back",
+        "a1.drawer-1-sub-front",
+        "a1.drawer-2-front",
+        "a1.drawer-2-bottom",
+        "a1.drawer-2-side-left",
+        "a1.drawer-2-side-right",
+        "a1.drawer-2-back",
+        "a1.drawer-2-sub-front"
+      ],
+      "generator": {
+        "type": "carcass",
+        "params": {
+          "width": 2304,
+          "height": 2208,
+          "depth": 1536,
+          "material": "ply-3-4",
+          "back": "inset",
+          "backMaterial": "ply-1-4",
+          "toeKick": {
+            "height": 256,
+            "depth": 192
+          },
+          "shelves": 0,
+          "joinery": "dado",
+          "drawers": [
+            384,
+            0
+          ],
+          "drawerMaterial": "ply-1-2"
+        },
+        "overrides": {}
+      }
+    },
+    "shelf-unit": {
+      "id": "shelf-unit",
+      "name": "Wall shelf",
+      "transform": {
+        "position": [
+          2688,
+          2560,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "children": [
+        "ws-l",
+        "ws-r",
+        "ws-s"
+      ]
+    }
+  },
+  "joints": {
+    "a1.j.drawer-1-back-left": {
+      "id": "a1.j.drawer-1-back-left",
+      "role": "drawer-1-back-left",
+      "type": "rabbet",
+      "parts": [
+        "a1.drawer-1-side-left",
+        "a1.drawer-1-back"
+      ],
+      "params": {
+        "depth": 15
+      }
+    },
+    "a1.j.drawer-1-sub-front-left": {
+      "id": "a1.j.drawer-1-sub-front-left",
+      "role": "drawer-1-sub-front-left",
+      "type": "rabbet",
+      "parts": [
+        "a1.drawer-1-side-left",
+        "a1.drawer-1-sub-front"
+      ],
+      "params": {
+        "depth": 15
+      }
+    },
+    "a1.j.drawer-1-back-right": {
+      "id": "a1.j.drawer-1-back-right",
+      "role": "drawer-1-back-right",
+      "type": "rabbet",
+      "parts": [
+        "a1.drawer-1-side-right",
+        "a1.drawer-1-back"
+      ],
+      "params": {
+        "depth": 15
+      }
+    },
+    "a1.j.drawer-1-sub-front-right": {
+      "id": "a1.j.drawer-1-sub-front-right",
+      "role": "drawer-1-sub-front-right",
+      "type": "rabbet",
+      "parts": [
+        "a1.drawer-1-side-right",
+        "a1.drawer-1-sub-front"
+      ],
+      "params": {
+        "depth": 15
+      }
+    },
+    "a1.j.drawer-2-back-left": {
+      "id": "a1.j.drawer-2-back-left",
+      "role": "drawer-2-back-left",
+      "type": "rabbet",
+      "parts": [
+        "a1.drawer-2-side-left",
+        "a1.drawer-2-back"
+      ],
+      "params": {
+        "depth": 15
+      }
+    },
+    "a1.j.drawer-2-sub-front-left": {
+      "id": "a1.j.drawer-2-sub-front-left",
+      "role": "drawer-2-sub-front-left",
+      "type": "rabbet",
+      "parts": [
+        "a1.drawer-2-side-left",
+        "a1.drawer-2-sub-front"
+      ],
+      "params": {
+        "depth": 15
+      }
+    },
+    "a1.j.drawer-2-back-right": {
+      "id": "a1.j.drawer-2-back-right",
+      "role": "drawer-2-back-right",
+      "type": "rabbet",
+      "parts": [
+        "a1.drawer-2-side-right",
+        "a1.drawer-2-back"
+      ],
+      "params": {
+        "depth": 15
+      }
+    },
+    "a1.j.drawer-2-sub-front-right": {
+      "id": "a1.j.drawer-2-sub-front-right",
+      "role": "drawer-2-sub-front-right",
+      "type": "rabbet",
+      "parts": [
+        "a1.drawer-2-side-right",
+        "a1.drawer-2-sub-front"
+      ],
+      "params": {
+        "depth": 15
+      }
+    },
+    "a1.j.bottom-left": {
+      "id": "a1.j.bottom-left",
+      "role": "bottom-left",
+      "type": "dado",
+      "parts": [
+        "a1.side-left",
+        "a1.bottom"
+      ],
+      "params": {
+        "depth": 16
+      }
+    },
+    "a1.j.bottom-right": {
+      "id": "a1.j.bottom-right",
+      "role": "bottom-right",
+      "type": "dado",
+      "parts": [
+        "a1.side-right",
+        "a1.bottom"
+      ],
+      "params": {
+        "depth": 16
+      }
+    },
+    "a1.j.top-left": {
+      "id": "a1.j.top-left",
+      "role": "top-left",
+      "type": "dado",
+      "parts": [
+        "a1.side-left",
+        "a1.top"
+      ],
+      "params": {
+        "depth": 16
+      }
+    },
+    "a1.j.top-right": {
+      "id": "a1.j.top-right",
+      "role": "top-right",
+      "type": "dado",
+      "parts": [
+        "a1.side-right",
+        "a1.top"
+      ],
+      "params": {
+        "depth": 16
+      }
+    },
+    "a1.j.back-left": {
+      "id": "a1.j.back-left",
+      "role": "back-left",
+      "type": "rabbet",
+      "parts": [
+        "a1.side-left",
+        "a1.back"
+      ],
+      "params": {
+        "depth": 24
+      }
+    },
+    "a1.j.back-right": {
+      "id": "a1.j.back-right",
+      "role": "back-right",
+      "type": "rabbet",
+      "parts": [
+        "a1.side-right",
+        "a1.back"
+      ],
+      "params": {
+        "depth": 24
+      }
+    },
+    "a1.j.kick-left": {
+      "id": "a1.j.kick-left",
+      "role": "kick-left",
+      "type": "butt",
+      "parts": [
+        "a1.side-left",
+        "a1.kick"
+      ],
+      "params": {}
+    },
+    "a1.j.kick-right": {
+      "id": "a1.j.kick-right",
+      "role": "kick-right",
+      "type": "butt",
+      "parts": [
+        "a1.side-right",
+        "a1.kick"
+      ],
+      "params": {}
+    },
+    "j1": {
+      "id": "j1",
+      "type": "dado",
+      "parts": [
+        "ws-l",
+        "ws-s"
+      ],
+      "params": {
+        "depth": 16
+      }
+    },
+    "j2": {
+      "id": "j2",
+      "type": "dado",
+      "parts": [
+        "ws-r",
+        "ws-s"
+      ],
+      "params": {
+        "depth": 16
+      }
+    }
+  },
+  "annotations": {},
+  "variables": {},
+  "roots": [
+    "a1",
+    "shelf-unit"
+  ]
+}
