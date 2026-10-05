@@ -53,6 +53,10 @@ export const Grain = z.enum(['x', 'y', 'z', 'none']);
 export const Part = z.object({
   id: Id,
   name: z.string(),
+  /** Hidden in the viewport, still part of the model and cut list. */
+  hidden: z.boolean().optional(),
+  /** Clicks in the viewport pass through it (still selectable from the tree). */
+  unclickable: z.boolean().optional(),
   /** Every real part has one; blocks have none (the validator checks both). */
   material: Id.optional(),
   grain: Grain,
@@ -78,6 +82,8 @@ export const Part = z.object({
 /** A user tweak to one generated part, re-applied on every regenerate. */
 export const Override = z.object({
   deleted: z.literal(true).optional(),
+  hidden: z.boolean().optional(),
+  unclickable: z.boolean().optional(),
   name: z.string().optional(),
   material: Id.optional(),
   grain: Grain.optional(),
@@ -100,6 +106,10 @@ export const GeneratorRef = z.object({
 export const Assembly = z.object({
   id: Id,
   name: z.string(),
+  /** Hides this folder and its descendants in the viewport. */
+  hidden: z.boolean().optional(),
+  /** Makes this folder and its descendants unclickable in the viewport. */
+  unclickable: z.boolean().optional(),
   transform: Transform,
   /** Part and assembly ids, in order. */
   children: z.array(Id),

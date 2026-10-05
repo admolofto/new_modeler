@@ -1,6 +1,7 @@
 import type { V3 } from '../geometry/types';
 import { descendants } from '../model/doc';
 import type { Doc } from '../model/schema';
+import { hiddenNodes } from '../model/visibility';
 import { frameBoxes, nodeAffine, type Box3 } from '../model/world';
 import { buildPart } from '../plugins/pipeline';
 import { WORDS } from '../plugins/shapes/box';
@@ -68,7 +69,8 @@ function moving(doc: Doc, hd: HandleDrives): Set<string> {
 
 function others(doc: Doc, hd: HandleDrives, boxes: Map<string, Box3>): [string, Box3][] {
   const skip = moving(doc, hd);
-  return [...boxes].filter(([id]) => doc.parts[id] && !skip.has(id));
+  const hidden = hiddenNodes(doc);
+  return [...boxes].filter(([id]) => doc.parts[id] && !skip.has(id) && !hidden.has(id));
 }
 
 /**
@@ -145,8 +147,10 @@ export function inferPlane(
  */
 export function inferMove(doc: Doc, k: 0 | 1 | 2, box: Box3, raw: number, tol: number, boxes: Map<string, Box3>, floor?: number): Snap | null {
   const cands: Cand[] = [];
+  const hidden = hiddenNodes(doc);
   const mid = (b: Box3) => (b.min[k] + b.max[k]) / 2;
   for (const [id, b] of boxes) {
+    if (hidden.has(id)) continue;
     const name = nameOf(doc, id);
     cands.push(
       { s: b.min[k] - box.max[k], label: `against ${name}`, node: id, rank: 0 },
@@ -176,10 +180,12 @@ export function inferDraw(
   step: number,
   from?: V3,
 ): { p: V3; labels: string[]; nodes: string[]; axes: (0 | 1 | 2)[] } {
+  const hidden = hiddenNodes(doc);
   const axes = ([0, 1, 2] as const).filter((k) => k !== plane);
   const cands = axes.map((k) => {
     const out: Cand[] = [];
     for (const [id, b] of boxes) {
+      if (hidden.has(id)) continue;
       const name = nameOf(doc, id);
       out.push({ s: b.min[k], label: `in line with ${name} ${WORDS[k][0]}`, node: id, rank: 0 }, { s: b.max[k], label: `in line with ${name} ${WORDS[k][1]}`, node: id, rank: 0 });
       if (from) {
@@ -212,7 +218,9 @@ export function inferDraw(
  */
 export function inferExtrude(doc: Doc, k: 0 | 1 | 2, base: number, sign: 1 | -1, raw: number, tol: number, boxes: Map<string, Box3>, step: number): Snap & { snapped: boolean } {
   const cands: Cand[] = [];
+  const hidden = hiddenNodes(doc);
   for (const [id, b] of boxes) {
+    if (hidden.has(id)) continue;
     const name = nameOf(doc, id);
     for (const [c, max] of [[b.min[k], false], [b.max[k], true]] as const) {
       const s = sign * (c - base);
@@ -236,8 +244,10 @@ export const CABINET_STEP = 3 * 64;
  */
 export function inferSplit(doc: Doc, k: 0 | 1 | 2, size: number, raw: number, tol: number, boxes: Map<string, Box3>, step: number): Snap | null {
   const cands: Cand[] = [];
+  const hidden = hiddenNodes(doc);
   const inside = (s: number) => s > 0 && s < size;
   for (const [id, b] of boxes) {
+    if (hidden.has(id)) continue;
     for (const [c, max] of [[b.min[k], false], [b.max[k], true]] as const) {
       if (inside(c)) cands.push({ s: c, label: `in line with ${nameOf(doc, id)} ${WORDS[k][max ? 1 : 0]}`, node: id, rank: 0 });
     }

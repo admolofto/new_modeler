@@ -20,6 +20,8 @@ function genToPart(asmId: string, gp: GenPart, ov: Override | undefined): Part {
     id: genPartId(asmId, gp.role),
     role: gp.role,
     name: ov?.name ?? gp.name,
+    ...(ov?.hidden && { hidden: true }),
+    ...(ov?.unclickable && { unclickable: true }),
     material: ov?.material ?? gp.material,
     grain: ov?.grain ?? gp.grain,
     transform: {
@@ -83,6 +85,8 @@ export function regenerate(d: Doc, asmId: string): void {
 
 function diffPart(part: Part, base: Part): Override {
   const ov: Override = {};
+  if (part.hidden) ov.hidden = true;
+  if (part.unclickable) ov.unclickable = true;
   if (part.name !== base.name) ov.name = part.name;
   if (part.material !== base.material) ov.material = part.material;
   if (part.grain !== base.grain) ov.grain = part.grain;

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import '../plugins';
 import { buildPart } from '../plugins/pipeline';
 import { isWatertight } from '../plugins/testMesh';
-import { cutList, cutListCsv, cutParts, packSheets } from './cutlist';
+import { cutList, cutListCsv, cutParts } from './cutlist';
 import { DEFAULT_CARCASS, demoDoc, emptyDoc } from './defaults';
 import { applyOps, type Op } from './ops';
 import type { Doc } from './schema';
@@ -138,13 +138,5 @@ describe('cut list', () => {
     const list = cutList(d);
     expect(list.problems[0]).toMatch(/j1 .*doesn't touch "side" face to face/);
     expect(list.problems[1]).toMatch(/long is bigger than a 48" × 96" sheet/);
-  });
-
-  it('packs sheets by shelves, keeping grain along the sheet', () => {
-    const part = (length: number, width: number, grain = true) => ({ length, width, grain, name: 'p' });
-    expect(packSheets([part(inches(96), inches(24)), part(inches(96), inches(24))], [inches(48), inches(96)], 0).count).toBe(1);
-    expect(packSheets([part(inches(96), inches(24)), part(inches(96), inches(24))], [inches(48), inches(96)], 8).count).toBe(2);
-    expect(packSheets([part(inches(40), inches(90))], [inches(48), inches(96)], 8).oversize).toEqual(['p']);
-    expect(packSheets([part(inches(40), inches(90), false)], [inches(48), inches(96)], 8).count).toBe(1);
   });
 });

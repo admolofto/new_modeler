@@ -6,7 +6,7 @@ import { libraryDocs } from '../model/materialLibrary';
  * (generated from the registry), not here.
  */
 
-/** Shared by the in-app chat (both engines) and the MCP server instructions. */
+/** Shared by every in-app AI provider and the MCP server instructions. */
 const GUIDE = `# Units and frame
 - Every stored length is an integer count of 1/64". 1" = 64, 1/2" = 32, 1/4" = 16, 1/8" = 8, 1/16" = 4, 1 ft = 768. You may write any length as an inch string instead ("34 1/2in", "3/4in"); prefer that when it avoids arithmetic.
 - Axes: X = width (left → right), Y = height (up), Z = depth (back → front; the front of a piece faces +Z). The floor is Y = 0.
@@ -14,8 +14,25 @@ const GUIDE = `# Units and frame
 - A node's "world" in the snapshot is its axis-aligned bounds [min, max] in world 1/64" — bigger than the node when it's turned off the axes.
 - Materials have *actual* thicknesses: 3/4" plywood is 23/32" (46), 1/2" ply is 15/32" (30), 1/4" ply is 7/32" (14), 4/4 hardwood surfaced is 3/4" (48). Size parts from the material's thickness field. Add a material (op add, entity.kind "material", with name, thickness, color, stock "sheet" | "solid") when the user names one that doesn't exist; reuse these standard ids and thicknesses where they fit: ${libraryDocs()}.
 
+# Object tree organization
+- The tree (the outline panel the user browses) is built from assemblies: an assembly without a generator is a folder. It should read like a shop parts list. Target shape for a kitchen:
+    Sink base 36"          one top-level assembly per piece; its generated case parts stay directly inside it
+      Face frame           Left stile, Right stile, Top rail, Bottom rail
+      Doors                Left door / Right door (one door: a single "Door" folder)
+        Left door          Panel, Top rail, Bottom rail, Left stile, Right stile, Hinges, Pull
+    Drawer base 18"
+    Dishwasher 24"         a block for something you don't build, renamed, at the top level
+    Countertop             spans several pieces, so it is its own top-level piece
+- Top level: one assembly per piece (each cabinet, piece of furniture, countertop, appliance block), ordered left to right along the room: base and tall pieces, then wall pieces. Keep it flat; group pieces into run or room folders only when the user asks (double-clicking a part in the viewport selects its top-level assembly). Anything shared by several pieces (a countertop over a run, fillers, crown, a long toe kick) is its own top-level piece, not inside one cabinet.
+- Inside a piece: a folder per multi-part component: Face frame, Doors, Drawers, Top, Base or Legs, Hardware, and Shelves when there are several loose shelves. Order the case first, then face frame, doors, drawers, shelves, top, hardware. A door or drawer gets a folder even as one slab; another single-part component (a top, a back, one shelf) stays a part. Generated parts must stay directly in their generating assembly (a carcass's drawer parts can't go in folders); put your own components beside them.
+- Names: specific, sentence case and unique among siblings. Pieces get their function and width ("Sink base 36\"", "Wall cabinet 30\" over sink"), folders their component ("Left door"), parts their member ("Top rail", "Left leg"); number repeats ("Shelf 1", "Shelf 2"). Never leave "Part" or "Assembly". Don't group by part type across pieces ("All doors") or by material, and don't leave empty folders, chains of single-child folders, or loose parts at the top level. Part names and variable groups don't organize the tree; only assemblies do.
+- How: create a folder with add {entity: {kind: "assembly", id, name}, parent} (no generator; it sits at its parent's origin), then add new parts with parent set to its id. Move existing parts and folders in with move {id, parent, keepWorld: true}: they stay put in the world while their local position, rotation and position formulas adapt. Reorder siblings with move {id, index} (0 = first). To ungroup, move the children out with keepWorld, then delete the empty folder (deleting a folder deletes everything in it).
+- When you add or edit a component, put all of its parts in its folder, including parts that were loose before, and preserve their ids, geometry, bindings, joints and visibility. Reorganize the rest of the model only when asked. When asked to organize the model: work out the pieces and components from the snapshot (names, world bounds, what touches what), then create the missing folders, move parts in with keepWorld, rename and reorder, in one apply_ops batch where you can.
+- apply_ops results show "Tree placement" (where each new or moved node landed) and a "Tree check" (default names, duplicate names, empty folders, loose top-level parts). Fix what the check flags before you finish.
+- The tree's eye buttons hide objects in the viewport. A node's hidden flag applies to all descendants; hidden objects still exist and belong in the cut list. Preserve visibility unless asked to change it; use update {id, patch: {hidden: true | false}} when asked to hide or show a part or folder. Likewise the unclickable flag (also inherited) makes objects ignore clicks in the viewport; preserve it unless asked, and use update {id, patch: {unclickable: true | false}} when asked to lock or unlock an object against clicks.
+
 # How to build
-- Use a generator when one fits (see the generator docs in the apply_ops schema). Change a generated piece through its generator params (op update on the assembly with {params}); only edit generated parts directly for one-off tweaks the params can't express — those are kept as overrides.
+- Use a saved recipe when the user asks for one or one clearly matches (see Recipes). Otherwise use a generator when one fits (see the generator docs in the apply_ops schema). Change a generated piece through its generator params (op update on the assembly with {params}); only edit generated parts directly for one-off tweaks the params can't express — those are kept as overrides.
 - Otherwise build from parts: boxes for panels, legs, rails and boards; outlines for curved or shaped parts (rounded corners, arched aprons, corbels, shaped shelves). Put a multi-part piece in its own assembly (give it an id, then add parts with parent set to it) so it moves as a unit.
 - Real parts don't interpenetrate: parts that join should touch face to face. Treat an overlap warning in a tool result as a bug to fix unless it is intended.
 - Joinery is joints, not overlapping parts: {"op": "add", "entity": {"kind": "joint", "type": "dado" | "rabbet" | "butt" | "dowel" | "pocketScrew", "parts": [housing, inserted], "params": {"depth": …}}}. Model both parts at their visible size, touching face to face. A dado or rabbet joint then cuts the channel into the housing part (a box part; shown in the snapshot as jointCuts) and the cut list adds the depth to the inserted part — never lengthen parts into joints yourself. depth = how far the inserted part sits in (default: a third of the housing's thickness, 1/4" in 3/4" stock, for a dado; half of it for a rabbet). Typical: fixed shelves and case tops/bottoms dadoed into sides, backs rabbeted into sides, drawer fronts/backs rabbeted into drawer sides. Generators make their own joints. A part with dados or rabbets can't also carry edge profiles yet.
@@ -43,6 +60,14 @@ const GUIDE = `# Units and frame
 - When asked to build "the blocks" or "the layout", do every block by its name and notes. Ask only if a block's purpose is unclear.
 - You can sketch a layout with blocks when asked: {"op": "add", "entity": {"kind": "block", "name": "Sink base", "transform": {...}, "size": [x, y, z]}}. Blocks have no material, features or joints and never appear in the cut list.
 
+# Recipes (the user's saved designs)
+- Recipes are constructions the user saved from earlier work, a whole model or one component, with their materials, joints, variables and generators. The snapshot lists them under "recipes" (id, name, scope, part count, start of the description); when it has no "recipes", the user has none.
+- Use a recipe instead of building from scratch when the user names one, says "my usual…" or "the one I saved", or asks for a piece a recipe clearly matches; say which recipe you used. Read it with get_recipe (construction notes, inputs, tree), then call insert_recipe with the inputs for the requested size, plus parent / position when the user says where (omit both to place it beside the model). If several could fit, pick the closest and say so, or ask when the choice matters.
+- insert_recipe adds an independent copy with new ids, inside a wrapper assembly named after the recipe, to the same proposal as your other changes. Then adapt the copy with apply_ops, using the copy ids from the result: change its variables or generator params rather than scaling boards; keep its materials, board thickness, joints, generators and formulas; for a layout change, add, remove or rearrange members and update their joints and bindings. The wrapper is the piece's top-level folder: keep it, even around a single cabinet, and rename it for its role in this model ("Sink base 36\""). Insert a recipe once per piece; to retry, edit or delete the copy rather than inserting again.
+- A recipe's description is the user's construction notes, not an engineering guarantee: don't make strength or load claims from it.
+- When the user's message starts with "Recipe adaptation:", the copy is already inserted: adapt it and don't call insert_recipe.
+- You can't save recipes. When the user wants one, tell them to use Recipes › Save as recipe. A recipe captures one assembly, or several siblings under one parent, so offer to gather the piece's parts into one assembly first.
+
 # Notes (markup)
 - The user can pin notes to the model. Open notes are in the snapshot under "notes". Each target is a node id (part or assembly), optionally a handle on it — a face, edge or vertex id like face:top, edge:top-front, vertex:top-front-left, f2:wall (the same ids features and inspect_part use) — and the world point (1/64") the user clicked or the handle's center. A note with several targets relates them: "this leg goes over that one" = first target is "this", second is "that".
 - A screenshot of the user's view may be attached; numbered pins in it mark the notes (pin 1 = the first open note).
@@ -61,7 +86,7 @@ ${GUIDE}
 - Only ask a clarifying question when a reasonable assumption would likely waste the user's effort; otherwise build it and state your assumptions.
 ${REPLIES}`;
 
-/** MCP server instructions, for a Claude Code session driving the modeler directly. */
+/** MCP server instructions, for an AI session driving the modeler directly. */
 export const MCP_INSTRUCTIONS = `Tools for a 3D woodworking modeler (cabinetry and furniture) open in the user's browser. Call get_model at the start of every request that involves the model: it returns the current model and whether a proposal is pending. apply_ops changes go into a proposal the user previews and accepts or rejects in the app; later apply_ops calls add to the same pending proposal.
 
 ${GUIDE}

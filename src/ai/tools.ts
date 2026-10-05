@@ -6,7 +6,11 @@ import { Id, type Doc } from '../model/schema';
 import { formatInches, parseInches } from '../model/units';
 import { features, generators, shapes } from '../plugins';
 import { buildPart } from '../plugins/pipeline';
-import { boxSize, overlaps, worldBoxes, type Box3 } from '../model/world';
+import { boxSize, overlaps, union, worldBoxes, type Box3 } from '../model/world';
+import { parentIndex } from '../model/doc';
+import { generatedOwner } from '../model/generate';
+import { placeRecipe, recipeInputs, type Recipe } from '../model/recipes';
+import { treeIssues } from './organization';
 
 /**
  * AI tools. Their input schemas are generated from the plugin registry (every shape,
@@ -50,6 +54,12 @@ export const TOOL_APPLY = 'apply_ops';
 export const TOOL_INSPECT = 'inspect_part';
 export const TOOL_GET_MODEL = 'get_model';
 export const TOOL_CUT_LIST = 'cut_list';
+export const TOOL_GET_RECIPE = 'get_recipe';
+export const TOOL_INSERT_RECIPE = 'insert_recipe';
+
+/** A length in 1/64" or an inch string ("30in"). */
+const Length = z.union([z.int(), z.string()]);
+const RecipeRef = z.string().min(1).describe('The recipe\'s id from the "recipes" catalog in the model snapshot (its exact name also works).');
 
 export function toolDefs(): Tool[] {
   return [
@@ -65,8 +75,12 @@ export function toolDefs(): Tool[] {
         'Ops: add {entity, parent?, index?} (entity.kind part | block | assembly | joint | material; a block is a placeholder box: {kind: "block", name?, transform?, size: [x, y, z]}); update {id, patch} (part: name, material, ' +
         'grain, shape: {params} merged into the current params — a block takes only name and shape params; assembly: name, params merged into its generator params, which ' +
         'regenerates it; material: name, thickness, color, stock; joint: type, parts, params); delete {id} (assemblies take their ' +
-        'children with them; deleting a generated part is remembered as an override); move {id, to? | by?, rotation?, parent?, index?} ' +
-        '(parent: assembly id or null = top level); addFeature {part, feature}; updateFeature {part, feature: id, params (merged)}; ' +
+        'children with them; deleting a generated part is remembered as an override); move {id, to? | by?, rotation?, parent?, index?, keepWorld?} ' +
+        '(parent: assembly id or null = top level; add keepWorld: true when reparenting existing nodes so they stay where they are in the world ' +
+        '— their local transform and position formulas adapt; index alone, without parent, reorders a node among its siblings, 0 = first). ' +
+        'Organize each piece as a named assembly and each multi-part component (door, drawer, face frame) as a named folder inside it. ' +
+        'Parts, blocks and assemblies accept update patch {hidden: boolean} for viewport visibility and {unclickable: boolean} to make them ignore viewport clicks; both apply to folder descendants. ' +
+        'addFeature {part, feature}; updateFeature {part, feature: id, params (merged)}; ' +
         'removeFeature {part, feature: id}; bind {node, path, expr} binds a part / assembly field to a formula over variables ' +
         '(expr null unbinds; the value stays). Variables: add {entity: {kind: "variable", id, name, group, unit?, value}}; ' +
         'update {id, patch: {value | name | group}}; delete {id} (unbinds what used it). ' +
@@ -89,6 +103,30 @@ export function toolDefs(): Tool[] {
         'estimates, and problems such as joints whose parts do not touch. Use it when the user asks for cut sizes, a cut ' +
         'list, or how much material to buy, and to check joinery after adding joints.',
       input_schema: { type: 'object', properties: {} },
+    },
+    {
+      name: TOOL_GET_RECIPE,
+      description:
+        'One of the user\'s saved recipes (catalogued under "recipes" in the model snapshot) in full: its construction ' +
+        'description, warnings, overall size, materials, its part / assembly tree, and the inputs insert_recipe accepts with ' +
+        'their saved values. Read it before inserting a recipe, to pick the inputs and learn how it is built.',
+      input_schema: jsonSchema(z.object({ id: RecipeRef })),
+    },
+    {
+      name: TOOL_INSERT_RECIPE,
+      description:
+        'Inserts an independent, editable copy of a saved recipe into the working model, in the same preview as your other ' +
+        'changes. The copy gets fresh ids inside a new wrapper assembly named after the recipe; the result maps the recipe\'s ids ' +
+        'to the copy\'s. inputs: {key: value} with input keys from get_recipe (lengths may be inch strings); other dimensions ' +
+        'follow the saved design. parent: an assembly id, or null / omitted for top level. position: the wrapper\'s placement ' +
+        'relative to the parent; omit it at top level to put the copy 12" to the right of the existing model. Then adapt the ' +
+        'copy with apply_ops; insert a recipe once per piece and edit or delete the copy rather than inserting it again.',
+      input_schema: jsonSchema(z.object({
+        id: RecipeRef,
+        inputs: z.record(z.string(), Length).optional(),
+        parent: Id.nullable().optional(),
+        position: z.tuple([Length, Length, Length]).optional(),
+      })),
     },
   ];
 }
@@ -125,6 +163,8 @@ export interface ToolState {
   draft: Doc;
   /** Every op applied this turn, in order (what the preview accepts). */
   ops: Op[];
+  /** The user's saved recipe library; may throw when browser storage can't be read. */
+  recipes?: (() => readonly Recipe[]) | undefined;
 }
 
 export interface ToolOutcome {
@@ -202,6 +242,10 @@ function applyTool(state: ToolState, input: unknown): ToolOutcome {
   for (const [asm, roles] of generated) lines.push(`Generated in ${asm}: ${roles.join(', ')}`);
   if (removed.length) lines.push(`Removed: ${removed.map((id) => describeNode(before, id)).join(', ')}`);
   if (changedParts.length) lines.push(`Changed parts: ${changedParts.length > 12 ? `${changedParts.length} parts` : changedParts.join(', ')}`);
+  const oldParents = parentIndex(before);
+  const treeChanges = [...parentIndex(after)].filter(([id, parent]) => !oldParents.has(id) || oldParents.get(id) !== parent);
+  if (treeChanges.length) lines.push('Tree placement:', ...treeChanges.filter(([id]) => !after.parts[id]?.role).map(([id, parent]) =>
+    `  ${describeNode(after, id)} under ${parent ? describeNode(after, parent) : 'Model (top level)'}`));
   const vars = Object.values(after.variables);
   const varBits = vars
     .filter((v) => before.variables[v.id]?.value !== v.value || before.variables[v.id]?.name !== v.name)
@@ -223,17 +267,139 @@ function applyTool(state: ToolState, input: unknown): ToolOutcome {
     if (shown.size >= 8) break;
   }
   const clash = overlaps(after, touched, boxes);
-  if (clash.length) {
-    lines.push(
-      'Warning — these parts interpenetrate (their bounds overlap by the given depth); move or resize them unless intended:',
-      ...clash.slice(0, 10).map((c) => `  ${describeNode(after, c.a)} × ${describeNode(after, c.b)}: ${c.depth.map(formatInches).join(' × ')}`),
-    );
-  }
+  lines.push(...clashLines(after, clash));
+  const issues = treeIssues(before, after);
+  if (issues.length) lines.push('Tree check — fix these unless intended:', ...issues.slice(0, 10).map((i) => `  ${i}`));
   return {
     content: lines.join('\n'),
     isError: false,
     summary: `✓ ${ops.length} op${ops.length === 1 ? '' : 's'} applied${clash.length ? ` (${clash.length} overlap warning${clash.length === 1 ? '' : 's'})` : ''}`,
   };
+}
+
+function clashLines(d: Doc, clash: ReturnType<typeof overlaps>): string[] {
+  if (!clash.length) return [];
+  return [
+    'Warning — these parts interpenetrate (their bounds overlap by the given depth); move or resize them unless intended:',
+    ...clash.slice(0, 10).map((c) => `  ${describeNode(d, c.a)} × ${describeNode(d, c.b)}: ${c.depth.map(formatInches).join(' × ')}`),
+  ];
+}
+
+const fail = (content: string, summary: string): ToolOutcome => ({ content, isError: true, summary: `✗ ${summary}` });
+
+/** The recipe a tool call names (by id, or exact name), or the error to return. */
+function findRecipe(state: ToolState, ref: unknown): Recipe | ToolOutcome {
+  if (!state.recipes) return fail('No recipe library is available in this session.', 'no recipe library');
+  let all: readonly Recipe[];
+  try {
+    all = state.recipes();
+  } catch (e) {
+    return fail((e as Error).message, 'recipes could not be loaded');
+  }
+  const key = typeof ref === 'string' ? ref.trim() : '';
+  const found = all.find((r) => r.id === key) ?? all.find((r) => r.name.trim().toLowerCase() === key.toLowerCase());
+  if (found) return found;
+  const known = all.map((r) => `${r.id} "${r.name}"`).join(', ');
+  return fail(`No recipe "${key}". ${all.length ? `Saved recipes: ${known}.` : 'The user has no saved recipes.'}`, `no recipe "${key}"`);
+}
+
+const fmtInput = (unit: 'length' | 'number', value: number) => (unit === 'length' ? formatInches(value) : String(value));
+
+/** Indented outline of a recipe's tree; generated parts are summarized on their generator's line. */
+function treeOutline(d: Doc, max = 80): string[] {
+  const lines: string[] = [];
+  const visit = (id: string, depth: number) => {
+    if (lines.length >= max) return;
+    const pad = '  '.repeat(depth + 1);
+    const part = d.parts[id];
+    if (part) {
+      lines.push(`${pad}${part.name} [${id}]${part.block ? ' (block)' : ''}`);
+      return;
+    }
+    const asm = d.assemblies[id];
+    if (!asm) return;
+    const generated = asm.children.filter((c) => generatedOwner(d, c)?.id === asm.id);
+    const gen = asm.generator ? ` (${asm.generator.type} generator: ${generated.map((c) => d.parts[c]!.name).join(', ')})` : '';
+    lines.push(`${pad}${asm.name} [${id}]${gen}`);
+    for (const c of asm.children) if (!generated.includes(c)) visit(c, depth + 1);
+  };
+  for (const id of d.roots) visit(id, 0);
+  if (lines.length >= max) lines.push('  …');
+  return lines;
+}
+
+function getRecipeTool(state: ToolState, input: unknown): ToolOutcome {
+  const recipe = findRecipe(state, (input as { id?: unknown } | undefined)?.id);
+  if (!('doc' in recipe)) return recipe;
+  const d = recipe.doc;
+  const boxes = worldBoxes(d);
+  const roots = d.roots.flatMap((id) => (boxes.has(id) ? [boxes.get(id)!] : []));
+  const inputs = recipeInputs(recipe);
+  const lines = [
+    `Recipe ${recipe.id} "${recipe.name}" (${recipe.scope === 'model' ? 'whole model' : 'component'}, ${Object.keys(d.parts).length} parts).`,
+    `Description: ${recipe.description.trim() || '(none saved)'}`,
+    ...(recipe.warnings.length ? [`Warnings: ${recipe.warnings.join(' ')}`] : []),
+    ...(roots.length ? [`Overall size: ${fmtBox(union(roots))}`] : []),
+    `Materials: ${Object.values(d.materials).map((m) => `${m.id} "${m.name}" (${formatInches(m.thickness)} ${m.stock})`).join(', ') || 'none'}`,
+    inputs.length ? 'Inputs (insert_recipe inputs keys = saved values):' : 'Inputs: none; resize the copy with apply_ops after inserting it.',
+    ...inputs.map((i) => `  ${i.key}: ${i.group ? `${i.group} › ` : ''}${i.label} = ${fmtInput(i.unit, i.value)}`),
+    'Tree:',
+    ...treeOutline(d),
+  ];
+  return { content: lines.join('\n'), isError: false, summary: `read recipe "${recipe.name}"` };
+}
+
+const InsertInput = z.object({
+  id: z.string(),
+  inputs: z.record(z.string(), z.number()).optional(),
+  parent: Id.nullable().optional(),
+  position: z.tuple([z.number(), z.number(), z.number()]).optional(),
+});
+
+function insertRecipeTool(state: ToolState, input: unknown): ToolOutcome {
+  const parsed = InsertInput.safeParse(normalizeLengths(input));
+  if (!parsed.success) {
+    const why = parsed.error.issues.slice(0, 3).map((i) => `${i.path.join('.') || 'input'}: ${i.message}`).join('; ');
+    return fail(`Expected {"id", "inputs"?: {key: length or number}, "parent"?, "position"?: [x, y, z]}. ${why}`, 'insert_recipe: bad input');
+  }
+  const recipe = findRecipe(state, parsed.data.id);
+  if (!('doc' in recipe)) return recipe;
+  const { inputs, parent, position } = parsed.data;
+  let insertion;
+  try {
+    insertion = placeRecipe(state.draft, recipe, { inputs, parent, ...(position && { position: position.map(Math.round) as [number, number, number] }) });
+  } catch (e) {
+    const why = (e as Error).message;
+    return fail(`Rejected — nothing was inserted. ${why}`, `recipe "${recipe.name}" not inserted: ${why}`);
+  }
+  const before = state.draft;
+  const after = insertion.doc;
+  state.draft = after;
+  state.ops.push(...insertion.ops);
+
+  const named = (id: string) => describeNode(after, id);
+  // Materials the model already had under the same id need no mapping.
+  const copies = Object.entries(insertion.idMap).filter(([from, copy]) => from !== copy && !after.joints[copy] && !after.parts[copy]?.role);
+  const generated = Object.values(insertion.idMap).filter((id) => after.parts[id]?.role);
+  const newParts = Object.values(insertion.idMap).filter((id) => after.parts[id]);
+  const applied = recipeInputs(recipe).flatMap((i) => (inputs?.[i.key] === undefined ? [] : [`${i.label} = ${fmtInput(i.unit, inputs[i.key]!)}`]));
+  const boxes = worldBoxes(after);
+  const box = boxes.get(insertion.wrapperId);
+  const lines = [
+    `Inserted a copy of recipe "${recipe.name}" as ${named(insertion.wrapperId)} under ${parent ? named(parent) : 'Model (top level)'}; it is part of the pending proposal.`,
+    `Copy roots: ${insertion.rootIds.map(named).join(', ')}`,
+    ...(applied.length ? [`Inputs applied: ${applied.join(', ')}`] : []),
+    `Recipe id → copy: ${copies.map(([from, to]) => `${from} → ${named(to)}`).join(', ')}`,
+    ...(generated.length ? [`Plus ${generated.length} generated parts inside the copied generator assemblies.`] : []),
+    ...(box ? [`World bounds of ${named(insertion.wrapperId)}: ${fmtBox(box)}`] : []),
+    ...(insertion.warnings.length ? [`Recipe warnings: ${insertion.warnings.join(' ')}`] : []),
+    ...clashLines(after, overlaps(after, newParts, boxes)),
+    // Only the wrapper is judged: the saved design's own names are the user's.
+    ...treeIssues(before, after).filter((i) => i.includes(`${insertion.wrapperId} "`)).map((i) => `Tree check: ${i}`),
+    `Next: adapt this copy with apply_ops using the copy ids above (change its variables or generator params rather than scaling boards), ` +
+      `rename ${insertion.wrapperId} for its role in this model if that helps, and don't insert this recipe again.`,
+  ];
+  return { content: lines.join('\n'), isError: false, summary: `✓ inserted recipe "${recipe.name}"` };
 }
 
 function topAncestor(d: Doc, id: string): string | undefined {
@@ -281,6 +447,8 @@ export function runTool(state: ToolState, name: string, input: unknown): ToolOut
   if (name === TOOL_APPLY) return applyTool(state, input);
   if (name === TOOL_INSPECT) return inspectTool(state, input);
   if (name === TOOL_CUT_LIST) return { content: cutListText(cutList(state.draft)), isError: false, summary: 'read the cut list' };
+  if (name === TOOL_GET_RECIPE) return getRecipeTool(state, input);
+  if (name === TOOL_INSERT_RECIPE) return insertRecipeTool(state, input);
   return { content: `Unknown tool "${name}".`, isError: true, summary: `✗ unknown tool ${name}` };
 }
 

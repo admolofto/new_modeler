@@ -1,7 +1,8 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import type { Op } from '../model/ops';
+import type { Recipe } from '../model/recipes';
 import type { Doc } from '../model/schema';
-import { modelSnapshot } from './context';
+import { modelSnapshot, savedRecipes } from './context';
 import { SYSTEM_PROMPT } from './prompt';
 import { runTool, toolDefs, type ToolState } from './tools';
 
@@ -14,7 +15,7 @@ import { runTool, toolDefs, type ToolState } from './tools';
 
 export type MessageParam = Anthropic.Beta.BetaMessageParam;
 export type Message = Anthropic.Beta.BetaMessage;
-export type AiRequest = Pick<Anthropic.Beta.MessageCreateParamsNonStreaming, 'system' | 'tools' | 'messages' | 'max_tokens' | 'cache_control'>;
+export type AiRequest = Pick<Anthropic.Beta.MessageCreateParamsNonStreaming, 'system' | 'tools' | 'messages' | 'max_tokens' | 'cache_control'> & { model?: string };
 export type Send = (req: AiRequest, signal?: AbortSignal) => Promise<Message>;
 
 /** Chat state. `messages` is append-only (so prompt caching and replayed thinking stay valid). */
@@ -53,6 +54,8 @@ export interface TurnOptions {
   signal?: AbortSignal | undefined;
   onEvent?: ((e: AgentEvent) => void) | undefined;
   maxSteps?: number;
+  /** The user's saved recipe library: catalogued in the snapshot, used by the recipe tools. */
+  recipes?: (() => readonly Recipe[]) | undefined;
 }
 
 export const MAX_TOKENS = 32000;
@@ -60,8 +63,8 @@ let cachedTools: ReturnType<typeof toolDefs> | undefined;
 const tools = () => (cachedTools ??= toolDefs());
 
 /** One user turn as plain text (Claude Code engine): snapshot, optional note, request. */
-export function userTurnText(doc: Doc, note: string | undefined, text: string): string {
-  return [`<model>\n${modelSnapshot(doc)}\n</model>`, ...(note ? [`<note>${note}</note>`] : []), text].join('\n\n');
+export function userTurnText(doc: Doc, note: string | undefined, text: string, recipes?: () => readonly Recipe[]): string {
+  return [`<model>\n${modelSnapshot(doc, savedRecipes(recipes))}\n</model>`, ...(note ? [`<note>${note}</note>`] : []), text].join('\n\n');
 }
 
 export function newChat(): Chat {
@@ -82,7 +85,7 @@ export function buildRequest(messages: MessageParam[]): AiRequest {
 export async function runTurn(opts: TurnOptions): Promise<TurnResult> {
   const { send, chat, doc, onEvent } = opts;
   const start = chat.messages.length;
-  const snapshot = modelSnapshot(doc);
+  const snapshot = modelSnapshot(doc, savedRecipes(opts.recipes));
   const content: (Anthropic.Beta.BetaTextBlockParam | Anthropic.Beta.BetaImageBlockParam)[] = [
     { type: 'text', text: snapshot === chat.lastSnapshot ? '<model unchanged since the last snapshot />' : `<model>\n${snapshot}\n</model>` },
   ];
@@ -91,7 +94,7 @@ export async function runTurn(opts: TurnOptions): Promise<TurnResult> {
   content.push({ type: 'text', text: opts.text });
   chat.messages.push({ role: 'user', content });
 
-  const state: ToolState = { draft: doc, ops: [] };
+  const state: ToolState = { draft: doc, ops: [], recipes: opts.recipes };
   const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
   let text = '';
   const maxSteps = opts.maxSteps ?? 16;

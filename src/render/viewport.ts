@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { GROUND_INCHES } from '../edit/targets';
+import { createGrid, type Grid } from './grid';
 import { PALETTE } from './palette';
 
 /**
@@ -12,6 +12,8 @@ export interface Viewport {
   camera: THREE.PerspectiveCamera;
   renderer: THREE.WebGLRenderer;
   controls: OrbitControls;
+  /** The floor grid: endless, or bounded under an isolated folder. */
+  grid: Grid;
   /** Renders now and returns the view as a base64 JPEG, at most `maxWidth` px wide. */
   capture(maxWidth?: number): { mediaType: 'image/jpeg'; data: string };
   /** Model units (1/64") per screen pixel at a world point (scene units are inches). */
@@ -35,15 +37,21 @@ export function createViewport(container: HTMLElement): Viewport {
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.target.set(18, 17, 12);
   controls.enableDamping = true;
+  // Left-drag is box select (ui/interaction.ts); middle orbits (Shift: pans), right pans, the wheel zooms.
+  controls.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: THREE.MOUSE.PAN };
   controls.update();
+  // No browser autoscroll on a middle press.
+  renderer.domElement.addEventListener('mousedown', (e) => {
+    if (e.button === 1) e.preventDefault();
+  });
 
   scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2));
   const sun = new THREE.DirectionalLight(0xffffff, 1.5);
   sun.position.set(60, 100, 80);
   scene.add(sun);
 
-  // 12' floor, 1' squares
-  scene.add(new THREE.GridHelper(GROUND_INCHES, GROUND_INCHES / 12, PALETTE.gridMajor, PALETTE.gridMinor));
+  const grid = createGrid();
+  scene.add(grid.mesh);
 
   const resize = () => {
     const { clientWidth: w, clientHeight: h } = container;
@@ -58,6 +66,7 @@ export function createViewport(container: HTMLElement): Viewport {
   const frameHooks: (() => void)[] = [];
   renderer.setAnimationLoop(() => {
     controls.update();
+    grid.update(camera, controls.target);
     for (const fn of frameHooks) fn();
     renderer.render(scene, camera);
   });
@@ -67,6 +76,7 @@ export function createViewport(container: HTMLElement): Viewport {
     camera,
     renderer,
     controls,
+    grid,
     capture(maxWidth = 1280) {
       // Without preserveDrawingBuffer the canvas is only readable right after a render.
       renderer.render(scene, camera);

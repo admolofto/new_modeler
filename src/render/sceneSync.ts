@@ -3,6 +3,7 @@ import type { TaggedMesh } from '../geometry/types';
 import type { Doc, Part, Transform } from '../model/schema';
 import { UNITS_PER_INCH } from '../model/units';
 import { buildPart } from '../plugins/pipeline';
+import { unclickableNodes } from '../model/visibility';
 import { PALETTE } from './palette';
 
 /**
@@ -21,6 +22,8 @@ export interface SceneSync {
   /** The mesh currently drawn for a part (after the last update). */
   meshOf(partId: string): THREE.Mesh | undefined;
   meshes(): THREE.Mesh[];
+  /** The drawn meshes viewport clicks can pick (skips unclickable parts and folders). */
+  pickable(): THREE.Mesh[];
 }
 
 const DEG = Math.PI / 180;
@@ -124,14 +127,18 @@ export function createSceneSync(scene: THREE.Scene): SceneSync {
   };
 
   const live = new Set<string>();
+  let unclickable = new Set<string>();
   return {
     root,
     meshOf: (id) => (live.has(id) ? cache.get(id)?.mesh : undefined),
     meshes: () => [...live].map((id) => cache.get(id)!.mesh),
+    pickable: () => [...live].filter((id) => !unclickable.has(id)).map((id) => cache.get(id)!.mesh),
     update(doc, opts) {
       root.clear();
       live.clear();
+      unclickable = unclickableNodes(doc);
       const addNode = (id: string, parent: THREE.Object3D) => {
+        if ((doc.parts[id] ?? doc.assemblies[id])?.hidden) return;
         const part = doc.parts[id];
         if (part) {
           const mesh = partMesh(doc, part, opts?.highlight?.has(id) ?? false);
@@ -152,8 +159,9 @@ export function createSceneSync(scene: THREE.Scene): SceneSync {
         for (const c of asm.children) addNode(c, group);
       };
       for (const id of doc.roots) addNode(id, root);
+      // Hidden parts keep their meshes, so showing them again (or leaving an isolated folder) is quick.
       for (const [id, entry] of cache) {
-        if (!live.has(id)) {
+        if (!doc.parts[id]) {
           dispose(entry.mesh);
           cache.delete(id);
         }

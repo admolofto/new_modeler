@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { V3 } from '../geometry/types';
 import type { Doc } from '../model/schema';
+import { hiddenNodes } from '../model/visibility';
 import { UNITS_PER_INCH } from '../model/units';
 import { apply, nodeAffine } from '../model/world';
 
@@ -52,8 +53,9 @@ export function createBlockLabels(scene: THREE.Scene): BlockLabels {
       mats.forEach((m) => m.dispose());
       mats = [];
       const names = new Set<string>();
+      const hidden = hiddenNodes(doc);
       for (const part of Object.values(doc.parts)) {
-        if (!part.block) continue;
+        if (!part.block || hidden.has(part.id)) continue;
         const p = part.shape.params as { x: number; y: number; z: number };
         const top: V3 = apply(nodeAffine(doc, part.id), [p.x / 2, p.y, p.z / 2]);
         names.add(part.name);

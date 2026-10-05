@@ -1,16 +1,14 @@
-import type { Mode } from '../edit/targets';
 import { emptyDoc } from '../model/defaults';
 import type { Store } from '../model/store';
 import { el } from './dom';
 import { icon } from './icons';
-import type { Selection } from './selection';
 import { downloadFile, pickFile } from './storage';
 import { toast } from './toast';
 import { units } from './units';
 
 /**
- * The top bar: file (new / open / save), undo / redo, what a click selects (part / face / edge /
- * vertex), how the model is shown (dimension lines D, inches ⇄ mm U), the tools other panels add
+ * The top bar: file (new / open / save, plus what other modules add: SketchUp import / export), undo / redo, the
+ * drawing tools, how the model is shown (dimension lines D, inches ⇄ mm U), the tools other panels add
  * (cut list), the keyboard list (?) and the side-panel toggles. View settings are
  * per-browser preferences, not model data.
  */
@@ -21,7 +19,6 @@ const CSS = `
 #topbar .side { display: flex; align-items: center; gap: 2px; min-width: 0; }
 #topbar .side.r { justify-content: flex-end; }
 #topbar .mid { display: flex; align-items: center; gap: 8px; }
-#topbar .mid > span { color: var(--fg-3); font-size: var(--fs-sm); }
 #topbar .mark { padding: 0 10px 0 6px; font-weight: 650; letter-spacing: -.01em; white-space: nowrap; }
 #topbar .sep { flex: none; width: 1px; height: 18px; margin: 0 6px; background: var(--line-2); }
 #topbar .tools { display: flex; align-items: center; gap: 2px; }
@@ -36,20 +33,16 @@ const CSS = `
 .help p { margin: 10px 0 0; color: var(--fg-2); }
 `;
 
-const MODES: [Mode, string, string, string][] = [
-  ['part', 'Part', 'P', 'Select whole parts'],
-  ['face', 'Face', 'F', 'Select faces — drag a selected face to push or pull it'],
-  ['edge', 'Edge', 'E', 'Select edges to round or chamfer them'],
-  ['vertex', 'Vertex', 'V', 'Select corners and outline points'],
-];
-
 const HELP: [string, [string[], string][]][] = [
   [
     'Select',
     [
-      [['P', 'F', 'E', 'V'], 'Parts, faces, edges or vertices'],
+      [['Click'], 'The face, edge or corner under the cursor'],
+      [['Double-click'], 'The whole part'],
+      [['Triple-click'], 'The whole piece (cabinet, assembly)'],
       [['Shift', 'click'], 'Add to the selection'],
-      [['Double-click'], 'The whole piece (cabinet, assembly)'],
+      [['Tree'], 'Ctrl click: toggle a row; Shift click: every row between; right-click: hide, unclickable, isolate'],
+      [['Drag'], 'Box: left→right takes parts inside, right→left parts touched'],
       [['Esc'], 'Clear the selection, cancel a drag'],
       [['Del'], 'Delete what’s selected'],
     ],
@@ -92,6 +85,10 @@ const HELP: [string, [string[], string][]][] = [
   [
     'View',
     [
+      [['Middle-drag'], 'Orbit (Shift: pan)'],
+      [['Right-drag'], 'Pan'],
+      [['Wheel'], 'Zoom'],
+      [['I'], 'Isolate the folder holding the selection (again: the whole model)'],
       [['D'], 'Dimension lines'],
       [['U'], 'Inches ⇄ millimetres'],
       [['L'], 'Cut list'],
@@ -122,13 +119,14 @@ export interface TopBarOptions {
   app: HTMLElement;
   bar: HTMLElement;
   store: Store;
-  selection: Selection;
 }
 
 export interface TopBar {
+  /** Where file actions add their buttons, after Save (SketchUp import / export). */
+  file: HTMLElement;
   /** Where tools add their buttons (cut list). */
   tools: HTMLElement;
-  /** Where drawing tools add their buttons, beside the select modes (blocks). */
+  /** Where drawing tools add their buttons, in the middle of the bar (blocks). */
   draw: HTMLElement;
   /** Shows a side panel if it's hidden. */
   showPanel(side: 'left' | 'right'): void;
@@ -139,7 +137,7 @@ export interface TopBar {
 }
 
 export function mountTopBar(o: TopBarOptions): TopBar {
-  const { app, bar, store, selection } = o;
+  const { app, bar, store } = o;
   bar.append(el('style', {}, CSS));
   const listeners = new Set<() => void>();
   const emit = () => listeners.forEach((fn) => fn());
@@ -197,17 +195,6 @@ export function mountTopBar(o: TopBarOptions): TopBar {
   };
   store.subscribe(syncHistory);
 
-  // ── Selection mode ───────────────────────────────────────────────────────
-  const modeButtons = MODES.map(([mode, name, key, what]) => {
-    const b = el('button', { title: `${what} (${key})` }, name);
-    b.addEventListener('click', () => selection.setMode(mode));
-    return [mode, b] as const;
-  });
-  const syncModes = () => {
-    for (const [mode, b] of modeButtons) b.setAttribute('aria-pressed', String(selection.mode === mode));
-  };
-  selection.subscribe(syncModes);
-
   // ── View ─────────────────────────────────────────────────────────────────
   let dims = load(DIMS_KEY) !== 'off';
   const dimsBtn = button('ghost', 'Dimension lines: overall size of the selection, or of the whole model (D)', icon('ruler'), el('span', { class: 't' }, 'Dims'));
@@ -240,7 +227,7 @@ export function mountTopBar(o: TopBarOptions): TopBar {
     { class: 'pop help', role: 'dialog', 'aria-label': 'Keyboard shortcuts' },
     ...HELP.flatMap(([title, rows]) => [
       el('h4', {}, title),
-      el('dl', {}, ...rows.flatMap(([keys, what]) => [el('dt', {}, ...keys.map((k) => (/^(click|drag)$/i.test(k) ? k : el('kbd', {}, k)))), el('dd', {}, what)])),
+      el('dl', {}, ...rows.flatMap(([keys, what]) => [el('dt', {}, ...keys.map((k) => (/^(click|drag|double-click|triple-click|middle-drag|right-drag|wheel)$/i.test(k) ? k : el('kbd', {}, k)))), el('dd', {}, what)])),
     ]),
     el('p', {}, 'Lengths: 23 1/2, 23-1/2", 2\' 6", 18mm or 1.8cm. A bare number is in the units shown.'),
   );
@@ -257,11 +244,12 @@ export function mountTopBar(o: TopBarOptions): TopBar {
     if (!help.hidden && !help.contains(e.target as Node) && !helpBtn.contains(e.target as Node)) toggleHelp(false);
   });
 
+  const file = el('div', { class: 'tools' });
   const tools = el('div', { class: 'tools' });
   const draw = el('div', { class: 'tools' });
   bar.append(
-    el('div', { class: 'side' }, leftBtn, el('span', { class: 'mark' }, 'Modeler'), newBtn, openBtn, saveBtn, el('div', { class: 'sep' }), undoBtn, redoBtn),
-    el('div', { class: 'mid' }, el('span', {}, 'Select'), el('div', { class: 'seg', role: 'group', 'aria-label': 'Select' }, ...modeButtons.map(([, b]) => b)), draw),
+    el('div', { class: 'side' }, leftBtn, el('span', { class: 'mark' }, 'Modeler'), newBtn, openBtn, saveBtn, file, el('div', { class: 'sep' }), undoBtn, redoBtn),
+    el('div', { class: 'mid' }, draw),
     el(
       'div',
       { class: 'side r' },
@@ -280,9 +268,7 @@ export function mountTopBar(o: TopBarOptions): TopBar {
     const t = e.target as HTMLElement;
     if (t.closest('input, select, textarea') || e.ctrlKey || e.metaKey || e.altKey) return;
     const k = e.key.toLowerCase();
-    const mode = MODES.find(([, , key]) => key.toLowerCase() === k);
-    if (mode) selection.setMode(mode[0]);
-    else if (k === 'd') toggleDims();
+    if (k === 'd') toggleDims();
     else if (k === 'u') toggleUnits();
     else if (k === '?') toggleHelp();
     else if (k === 'escape' && !help.hidden) toggleHelp(false);
@@ -292,9 +278,9 @@ export function mountTopBar(o: TopBarOptions): TopBar {
 
   syncPanels();
   syncHistory();
-  syncModes();
   syncView();
   return {
+    file,
     tools,
     draw,
     showPanel: (side) => void (panels[side] || togglePanel(side)),

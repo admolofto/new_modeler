@@ -1,5 +1,6 @@
 import { TidyOutput, type TidyInput } from '../ai/tidy';
 import { targetPoint } from '../edit/targets';
+import { hiddenNodes } from '../model/visibility';
 import type { V3 } from '../geometry/types';
 import type { Doc } from '../model/schema';
 import type { Store } from '../model/store';
@@ -8,7 +9,7 @@ import type { DraftNote } from '../voice/align';
 import { scriptedRecognizer, speechSupported, webSpeech, type Recognizer } from '../voice/recognizer';
 import { timeline, type SimStep } from '../voice/script';
 import { createVoiceSession, type SessionDump, type VoiceSession } from '../voice/session';
-import type { ChatApi, Engine } from './chatPanel';
+import type { ChatPanel, Engine } from './chatPanel';
 import { el } from './dom';
 import { icon } from './icons';
 import { targetLabel } from './labels';
@@ -17,7 +18,7 @@ import type { Selection } from './selection';
 /**
  * Voice notes: press M (or the Talk button floating at the bottom of the 3D view), talk while
  * pointing at the model, press M again. Draft pins follow what you're talking about as you speak;
- * when you stop, Claude tidies the notes and they're added like typed ones (one undo step), waiting
+ * when you stop, the selected AI tidies the notes and they're added like typed ones (one undo step), waiting
  * on the chat's message box. A caption by the cursor shows what's heard and what it's attaching
  * to; a chip above the button shows progress and results.
  */
@@ -50,6 +51,13 @@ const STYLE = `
   border-left: 3px solid var(--note); border-radius: 6px; color: var(--fg); font: var(--fs-sm)/1.45 var(--font); }
 .voice-cap .interim { color: var(--fg-3); }
 .voice-cap .to { display: block; margin-top: 2px; color: #ffb4a8; }
+.voice-transfer { position: fixed; z-index: 70; pointer-events: none; width: min(240px, calc(100vw - 24px)); padding: 10px 12px;
+  border: 1px solid var(--note); border-radius: 10px; background: var(--raised); color: var(--fg); box-shadow: 0 12px 32px #0006;
+  font: var(--fs-sm)/1.45 var(--font); transform-origin: center; }
+.voice-transfer b { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+.voice-transfer svg { width: 14px; height: 14px; color: var(--note); }
+.voice-transfer .preview { margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-2); }
+.voice-arrival { outline: 2px solid var(--note); outline-offset: -2px; border-radius: 6px; }
 `;
 
 const ACK_KEY = 'new-modeler.voice-ack';
@@ -59,7 +67,7 @@ const STATUS_MS = 8000;
 export interface VoicePanelOptions {
   store: Store;
   selection: Selection;
-  chat: ChatApi;
+  chat: Pick<ChatPanel, 'engine' | 'notesSlot'>;
   /** The doc on screen (an AI proposal while one is pending). */
   shown(): Doc;
   /** Draft pins changed. */
@@ -116,7 +124,17 @@ export function mountVoicePanel(parent: HTMLElement, o: VoicePanelOptions): Voic
     now: () => performance.now(),
     doc: o.shown,
     selection: () => o.selection.targets,
-    dispatch: (ops) => o.store.dispatch(ops),
+    dispatch: (ops) => {
+      // Capture the origin before adding notes reveals chat and resizes the viewport.
+      const source = (chip.offsetWidth ? chip : mic).getBoundingClientRect();
+      const before = new Set(Object.keys(o.store.doc.annotations));
+      const result = o.store.dispatch(ops);
+      if (result.ok) {
+        const added = Object.keys(o.store.doc.annotations).filter((id) => !before.has(id));
+        if (added.length) requestAnimationFrame(() => transferNotes(source, added));
+      }
+      return result;
+    },
     tidy: (input, signal) => proxyTidy(o.chat.engine, input, signal),
     tidyTimeoutMs: () => (o.chat.engine === 'api' ? 20_000 : 45_000),
     onChange: () => render(),
@@ -130,6 +148,54 @@ export function mountVoicePanel(parent: HTMLElement, o: VoicePanelOptions): Voic
   const caption = el('div', { class: 'voice-cap' });
   parent.append(dock);
   document.body.append(caption);
+
+  function transferNotes(source: DOMRect, ids: string[]) {
+    const slot = o.chat.notesSlot;
+    const rows = ids.flatMap((id) => {
+      const row = slot.querySelector<HTMLElement>(`[data-note="${CSS.escape(id)}"]`);
+      return row ? [row] : [];
+    });
+    if (!rows.length || document.hidden || !slot.getBoundingClientRect().width) return;
+    // Scroll only the attachment tray; leave the message history and keyboard focus alone.
+    slot.scrollTop = slot.scrollHeight;
+    const arrival = () => {
+      for (const row of rows) {
+        if (!row.isConnected) continue;
+        row.classList.add('voice-arrival');
+        setTimeout(() => row.classList.remove('voice-arrival'), 900);
+      }
+    };
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches || !Element.prototype.animate) {
+      arrival();
+      return;
+    }
+    const target = slot.getBoundingClientRect();
+    const note = o.store.doc.annotations[ids[0]!];
+    const card = el('div', { class: 'voice-transfer', 'aria-hidden': 'true' },
+      el('b', {}, icon('mic'), ids.length === 1 ? 'Note ready' : `${ids.length} notes ready`),
+      el('div', { class: 'preview' }, note?.note ?? 'Ready in chat'));
+    document.body.append(card);
+    const x = Math.max(12, Math.min(source.x + source.width / 2 - card.offsetWidth / 2, window.innerWidth - card.offsetWidth - 12));
+    const y = Math.max(12, source.y + source.height / 2 - card.offsetHeight / 2);
+    card.style.left = `${x}px`;
+    card.style.top = `${y}px`;
+    const dx = target.x + target.width / 2 - x - card.offsetWidth / 2;
+    const dy = target.y + target.height / 2 - y - card.offsetHeight / 2;
+    const flight = card.animate([
+      { transform: 'translate(0, 0) scale(.94)', opacity: 0, offset: 0 },
+      { transform: 'translate(0, -16px) scale(1)', opacity: 1, offset: .2 },
+      { transform: `translate(${dx * .5}px, ${dy * .5 - 36}px) scale(.97)`, opacity: 1, offset: .6 },
+      { transform: `translate(${dx}px, ${dy}px) scale(.78)`, opacity: 0, offset: 1 },
+    ], { duration: 760, easing: 'cubic-bezier(.3, 0, .2, 1)' });
+    const cancel = () => flight.cancel();
+    window.addEventListener('resize', cancel, { once: true });
+    document.addEventListener('visibilitychange', cancel, { once: true });
+    void flight.finished.then(arrival, () => {}).finally(() => {
+      card.remove();
+      window.removeEventListener('resize', cancel);
+      document.removeEventListener('visibilitychange', cancel);
+    });
+  }
   // Toasts sit above the dock.
   new ResizeObserver(() => parent.style.setProperty('--toast-bottom', `${dock.offsetHeight + 24}px`)).observe(dock);
   let cursor = { x: 0, y: 0 };
@@ -250,10 +316,11 @@ export function mountVoicePanel(parent: HTMLElement, o: VoicePanelOptions): Voic
   return {
     session,
     pins(doc) {
+      const hidden = hiddenNodes(doc);
       const open = Object.values(doc.annotations).filter((a) => !a.resolved).length;
       const drafts = session.live().drafts;
       return drafts.flatMap((d, i): Pin[] => {
-        const pts = d.targets.map((t) => targetPoint(doc, t));
+        const pts = d.targets.filter((t) => !hidden.has(t.node)).map((t) => targetPoint(doc, t));
         const at = pts.find((p): p is V3 => p !== null);
         if (!at) return [];
         return [

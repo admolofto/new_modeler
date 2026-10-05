@@ -1,11 +1,9 @@
-import { targetKey, type Mode, type Target } from '../edit/targets';
+import { targetKey, type Target } from '../edit/targets';
 
-/** What's selected and hovered in the viewport, and at what granularity. UI state, not model data. */
+/** What's selected and hovered in the viewport. UI state, not model data. */
 export interface Selection {
-  readonly mode: Mode;
   readonly targets: readonly Target[];
   readonly hover: Target | null;
-  setMode(mode: Mode): void;
   set(targets: Target[]): void;
   /** Adds the target, or removes it if it's already selected. */
   toggle(t: Target): void;
@@ -17,7 +15,6 @@ export interface Selection {
 }
 
 export function createSelection(): Selection {
-  let mode: Mode = 'part';
   let targets: Target[] = [];
   let hover: Target | null = null;
   const listeners = new Set<() => void>();
@@ -25,20 +22,11 @@ export function createSelection(): Selection {
   const key = (t: Target | null) => (t ? targetKey(t) : '');
 
   return {
-    get mode() {
-      return mode;
-    },
     get targets() {
       return targets;
     },
     get hover() {
       return hover;
-    },
-    setMode(m) {
-      if (m === mode) return;
-      mode = m;
-      hover = null;
-      emit();
     },
     set(next) {
       targets = next;

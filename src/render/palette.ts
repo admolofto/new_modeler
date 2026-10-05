@@ -23,6 +23,8 @@ export const PALETTE = {
   axisY: 0x6cc24a,
   axisZ: 0x3d7df2,
   gizmoHot: 0xffd84d,
-  gridMajor: 0x55585f,
+  /** Floor grid (render/grid.ts): 1' lines, the bolder 4' lines, the axes through the origin. */
   gridMinor: 0x303338,
+  gridMajor: 0x44474e,
+  gridAxis: 0x55585f,
 } as const;

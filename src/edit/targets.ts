@@ -10,9 +10,6 @@ import { buildPart, type BuiltPart } from '../plugins/pipeline';
  */
 export type Target = AnnotationTarget;
 
-/** Selection granularity. */
-export type Mode = 'part' | 'face' | 'edge' | 'vertex';
-
 export const targetKey = (t: Target): string => (t.handle ? `${t.node}/${t.handle}` : t.node);
 
 /**
@@ -21,8 +18,6 @@ export const targetKey = (t: Target): string => (t.handle ? `${t.node}/${t.handl
  */
 export const GROUND = '_ground';
 export const isGround = (t: Target) => t.node === GROUND;
-/** Side of the square floor grid, in inches (centered on the origin). */
-export const GROUND_INCHES = 144;
 
 export interface ResolvedTarget {
   part: Part;

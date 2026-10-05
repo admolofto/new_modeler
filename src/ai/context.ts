@@ -1,17 +1,21 @@
 import { directionText, frontOf } from '../edit/blocks';
 import { isGround, targetPoint } from '../edit/targets';
+import type { Recipe } from '../model/recipes';
 import type { Doc } from '../model/schema';
 import { worldBoxes } from '../model/world';
+import { hiddenNodes } from '../model/visibility';
 
 /**
  * The model as the AI sees it each turn: compact JSON of the tree, parts, materials and variables
  * (with each node's `bind` formulas), plus each node's world bounds (so it can place things
  * relative to what exists without composing transforms itself), and the user's open markup
  * notes with each target's world point. Blocks (placeholders) show as `block: true` with the way
- * their front faces. Generated joints are left out; they follow the generator.
+ * their front faces. Generated joints are left out; they follow the generator. The user's saved
+ * recipes follow as a short catalog (get_recipe has the rest), so the AI knows they exist.
  */
-export function modelSnapshot(doc: Doc): string {
+export function modelSnapshot(doc: Doc, recipes: readonly Recipe[] = []): string {
   const boxes = worldBoxes(doc);
+  const hidden = hiddenNodes(doc);
   const world = (id: string) => {
     const b = boxes.get(id);
     return b && [b.min, b.max];
@@ -25,6 +29,9 @@ export function modelSnapshot(doc: Doc): string {
         id,
         name: part.name,
         block: true,
+        ...(part.hidden && { hidden: true }),
+        ...(hidden.has(id) && !part.hidden && { hiddenByParent: true }),
+        ...(part.unclickable && { unclickable: true }),
         position: part.transform.position,
         ...(!isZero(part.transform.rotation) && { rotation: part.transform.rotation }),
         shape: part.shape,
@@ -37,6 +44,9 @@ export function modelSnapshot(doc: Doc): string {
         id,
         name: part.name,
         ...(part.role && { role: part.role }),
+        ...(part.hidden && { hidden: true }),
+        ...(hidden.has(id) && !part.hidden && { hiddenByParent: true }),
+        ...(part.unclickable && { unclickable: true }),
         material: part.material,
         grain: part.grain,
         position: part.transform.position,
@@ -54,6 +64,9 @@ export function modelSnapshot(doc: Doc): string {
       id,
       name: asm.name,
       assembly: true,
+      ...(asm.hidden && { hidden: true }),
+      ...(hidden.has(id) && !asm.hidden && { hiddenByParent: true }),
+      ...(asm.unclickable && { unclickable: true }),
       position: asm.transform.position,
       ...(!isZero(asm.transform.rotation) && { rotation: asm.transform.rotation }),
       ...(asm.generator && {
@@ -88,5 +101,28 @@ export function modelSnapshot(doc: Doc): string {
     tree: doc.roots.map(node),
     ...(userJoints.length && { joints: userJoints }),
     ...(notes.length && { notes }),
+    ...(recipes.length && { recipes: recipeCatalog(recipes) }),
   });
+}
+
+const ABOUT = 200;
+
+/** One line per saved recipe: enough to recognize a match, not the whole design. */
+export function recipeCatalog(recipes: readonly Recipe[]) {
+  return recipes.map((r) => {
+    const about = r.description.trim().replace(/\s+/g, ' ');
+    return {
+      id: r.id, name: r.name, scope: r.scope === 'model' ? 'whole model' : 'component', parts: Object.keys(r.doc.parts).length,
+      ...(about && { about: about.length > ABOUT ? `${about.slice(0, ABOUT - 1)}…` : about }),
+    };
+  });
+}
+
+/** The library's recipes, or none when there is no library or it can't be read (the recipe tools report why). */
+export function savedRecipes(library: (() => readonly Recipe[]) | undefined): readonly Recipe[] {
+  try {
+    return library?.() ?? [];
+  } catch {
+    return [];
+  }
 }

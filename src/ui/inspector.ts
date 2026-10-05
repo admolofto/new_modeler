@@ -523,7 +523,7 @@ export function mountInspector(o: InspectorOptions): { focusNote(): void } {
   // ── Render ────────────────────────────────────────────────────────────────
   function content(doc: Doc): HTMLElement[] {
     const targets = selection.targets.filter((t) => doc.parts[t.node] || doc.assemblies[t.node]);
-    if (!targets.length) return [el('div', { class: 'empty' }, 'Click a part in the view or in the list above to see its settings.')];
+    if (!targets.length) return [el('div', { class: 'empty' }, 'Click a face, edge or corner in the view to select it. Double-click for the whole part, or pick one in the list above.')];
     const whole = wholeAssembly(doc, targets);
     const actions = actionsFor(doc, [...targets], fmt);
     const del = actions.find((a) => a.id === 'delete');
@@ -566,10 +566,10 @@ export function mountInspector(o: InspectorOptions): { focusNote(): void } {
     if (caret && again instanceof HTMLInputElement && caret[0] !== null) again.setSelectionRange(caret[0], caret[1]);
   }
 
-  // Hover changes on every mouse move over the model; only a new selection or mode re-renders.
+  // Hover changes on every mouse move over the model; only a new selection re-renders.
   let selSig = '';
   selection.subscribe(() => {
-    const sig = JSON.stringify([selection.mode, selection.targets]);
+    const sig = JSON.stringify(selection.targets);
     if (sig === selSig) return;
     selSig = sig;
     typed.clear();
@@ -600,7 +600,7 @@ export function mountInspector(o: InspectorOptions): { focusNote(): void } {
       const whole = wholeAssembly(doc, targets);
       const a = whole ? null : actionsFor(doc, targets).find((x) => x.id === 'delete' || x.id === 'remove-feature');
       const ops = whole ? [{ op: 'delete', id: whole.id } as Op] : a?.run({});
-      if (!ops) return;
+      if (!ops) return targets.some((t) => t.handle) ? toast('Double-click a part to select all of it, then Delete.') : undefined;
       if (editOps(ops)) selection.set([]);
     } else return;
     e.preventDefault();

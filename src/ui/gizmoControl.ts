@@ -32,6 +32,8 @@ export interface GizmoControlOptions {
   selection: Selection;
   /** The doc on screen (a drag preview while dragging). */
   shown(): Doc;
+  /** The doc as drawn (an isolated folder only): what moves snap to. */
+  view?(doc: Doc): Doc;
   editBlocked(): string | null;
   /** A drawing tool has the pointer: no gizmo. */
   toolActive(): boolean;
@@ -104,7 +106,7 @@ export function attachGizmo(o: GizmoControlOptions): GizmoControl {
   };
 
   /** The nodes the gizmo acts on now, or null (hidden). */
-  const nodes = (doc: Doc) => (o.toolActive() || o.editBlocked() || selection.mode !== 'part' ? null : gizmoNodes(doc, selection.targets));
+  const nodes = (doc: Doc) => (o.toolActive() || o.editBlocked() ? null : gizmoNodes(doc, selection.targets));
 
   function sync() {
     const doc = o.shown();
@@ -183,7 +185,7 @@ export function attachGizmo(o: GizmoControlOptions): GizmoControl {
     const step = e.altKey ? 1 : allBlocks ? BLOCK_STEP : 4;
     const tol = e.altKey ? 0 : SNAP_PX * viewport.unitsPerPx(inches(place.pivot));
     const snapAxis = (k: 0 | 1 | 2, raw: number): Snap => {
-      const s = tol && place.box ? inferMove(d.base, k, place.box, raw, tol, d.copy ? place.all : place.others, place.upright ? 0 : undefined) : null;
+      const s = tol && place.box ? inferMove(o.view?.(d.base) ?? d.base, k, place.box, raw, tol, d.copy ? place.all : place.others, place.upright ? 0 : undefined) : null;
       return s ?? { s: Math.round(raw / step) * step, label: '', node: '' };
     };
     // A copy: add it where the original is, then move / turn the copy.

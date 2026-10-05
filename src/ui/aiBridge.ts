@@ -2,8 +2,8 @@ import { BRIDGE, type BridgeCall, type BridgeResult } from '../ai/bridgeProtocol
 import type { Proposals } from './proposals';
 
 /**
- * Answers MCP tool calls forwarded by the dev server (server/bridge.ts), so a Claude Code
- * session — the in-app engine or your own terminal — works on this tab's model. Dev only.
+ * Answers AI tool calls forwarded by the dev server (server/bridge.ts), so Claude Code,
+ * Codex, and external MCP clients all work on this tab's model. Dev only.
  */
 export function connectBridge(proposals: Proposals): void {
   const hot = import.meta.hot;

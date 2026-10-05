@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import '../plugins';
 import { emptyDoc } from '../model/defaults';
 import type { Op } from '../model/ops';
+import { captureRecipe } from '../model/recipes';
 import { createStore } from '../model/store';
 import { inches } from '../model/units';
 import { createProposals } from './proposals';
@@ -41,6 +42,23 @@ describe('proposals', () => {
     expect(p.pending).toBeNull();
     expect(p.takeNote()).toMatch(/rejected/);
     expect(p.takeNote()).toBeUndefined();
+  });
+
+  it('gives every engine the recipe library: catalog in get_model, inserts join the proposal', () => {
+    const saved = createStore(emptyDoc());
+    saved.dispatch([panel('rail', 0)]);
+    const recipe = captureRecipe(saved.doc, { name: 'Rail', id: 'recipe-rail' });
+    const store = createStore(emptyDoc());
+    const p = createProposals(store, { recipes: () => [recipe] });
+    expect(p.runTool('get_model', {}).content).toContain('"recipes":[{"id":"recipe-rail","name":"Rail"');
+    p.runTool('apply_ops', { ops: [panel('a', 0)] });
+    const r = p.runTool('insert_recipe', { id: 'recipe-rail' });
+    expect(r.isError, r.content).toBe(false);
+    expect(p.pending!.diff.lines).toContain('+ a');
+    expect(p.pending!.draft.assemblies.recipe1!.name).toBe('Rail');
+    expect(p.accept()).toBe(true);
+    store.undo();
+    expect(store.doc.roots).toEqual([]);
   });
 
   it('re-applies on store changes and marks the proposal stale when it no longer fits', () => {

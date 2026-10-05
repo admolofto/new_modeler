@@ -1,7 +1,8 @@
-import { modelSnapshot } from '../ai/context';
+import { modelSnapshot, savedRecipes } from '../ai/context';
 import { diffDocs, type DocDiff } from '../ai/diff';
 import { runTool, TOOL_GET_MODEL, type ToolOutcome, type ToolState } from '../ai/tools';
 import { applyOps, type Op } from '../model/ops';
+import type { Recipe } from '../model/recipes';
 import type { Doc } from '../model/schema';
 import type { Store } from '../model/store';
 
@@ -29,6 +30,8 @@ export interface Proposals {
   add(ops: Op[], draft: Doc): void;
   /** Runs an AI tool against the working doc; applied ops join the proposal. */
   runTool(name: string, input: unknown): ToolOutcome;
+  /** The user's saved recipe library, if the app has one (reading it may throw). */
+  readonly recipes: (() => readonly Recipe[]) | undefined;
   accept(): boolean;
   reject(): void;
   /** One-shot note for the next chat turn about what happened to the last proposal. */
@@ -40,7 +43,12 @@ export interface Proposals {
   onTool(fn: (name: string, out: ToolOutcome) => void): void;
 }
 
-export function createProposals(store: Store): Proposals {
+export interface ProposalOptions {
+  /** The user's saved recipes, for the AI's recipe catalog and tools. */
+  recipes?: () => readonly Recipe[];
+}
+
+export function createProposals(store: Store, options: ProposalOptions = {}): Proposals {
   let pending: Proposal | null = null;
   let note: string | undefined;
   const listeners = new Set<() => void>();
@@ -62,6 +70,7 @@ export function createProposals(store: Store): Proposals {
       return pending;
     },
     working,
+    recipes: options.recipes,
     add(ops, draft) {
       if (!ops.length) return;
       const base = pending && !pending.stale ? pending.ops : [];
@@ -71,9 +80,9 @@ export function createProposals(store: Store): Proposals {
     runTool(name, input) {
       let out: ToolOutcome;
       if (name === TOOL_GET_MODEL) {
-        out = { content: `${self.status()}\n<model>\n${modelSnapshot(working())}\n</model>`, isError: false, summary: 'read the model' };
+        out = { content: `${self.status()}\n<model>\n${modelSnapshot(working(), savedRecipes(options.recipes))}\n</model>`, isError: false, summary: 'read the model' };
       } else {
-        const state: ToolState = { draft: working(), ops: [] };
+        const state: ToolState = { draft: working(), ops: [], recipes: options.recipes };
         out = runTool(state, name, input);
         self.add(state.ops, state.draft);
       }

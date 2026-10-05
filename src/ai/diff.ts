@@ -1,4 +1,4 @@
-import { deepEqual } from '../model/doc';
+import { deepEqual, parentIndex } from '../model/doc';
 import type { Bindings, Doc, Joint, JointCut, Part, Variable } from '../model/schema';
 import { formatInches } from '../model/units';
 
@@ -67,6 +67,8 @@ function bindChanges(a: Bindings | undefined, b: Bindings | undefined): string[]
 function partChanges(a: Part, b: Part, docB: Doc): string[] {
   const out: string[] = [];
   if (a.name !== b.name) out.push(`renamed "${b.name}"`);
+  if (!!a.hidden !== !!b.hidden) out.push(b.hidden ? 'hidden in viewport' : 'shown in viewport');
+  if (!!a.unclickable !== !!b.unclickable) out.push(b.unclickable ? 'made unclickable' : 'made clickable');
   if (a.material !== b.material) out.push(`material → ${b.material === undefined ? 'none' : (docB.materials[b.material]?.name ?? b.material)}`);
   if (a.grain !== b.grain) out.push(`grain → ${b.grain}`);
   if (!deepEqual(a.transform.position, b.transform.position)) out.push(`moved to ${fmt('position', b.transform.position)}`);
@@ -127,6 +129,8 @@ export function diffDocs(a: Doc, b: Doc): DocDiff {
     }
     const bits: string[] = [];
     if (old.name !== asm.name) bits.push(`renamed "${asm.name}"`);
+    if (!!old.hidden !== !!asm.hidden) bits.push(asm.hidden ? 'hidden in viewport' : 'shown in viewport');
+    if (!!old.unclickable !== !!asm.unclickable) bits.push(asm.unclickable ? 'made unclickable' : 'made clickable');
     if (!deepEqual(old.transform, asm.transform)) bits.push(`moved to ${fmt('position', asm.transform.position)}`);
     if (old.generator && asm.generator && !deepEqual(old.generator.params, asm.generator.params)) {
       regenerated.add(id);
@@ -159,6 +163,14 @@ export function diffDocs(a: Doc, b: Doc): DocDiff {
     return false;
   };
   for (const [id, part] of Object.entries(a.parts)) if (!b.parts[id] && !removedParent(id)) lines.push(`− ${part.name}${part.block ? ' (block)' : ''}`);
+
+  const oldParents = parentIndex(a);
+  for (const [id, parent] of parentIndex(b)) {
+    if (!oldParents.has(id) || oldParents.get(id) === parent) continue;
+    const node = (b.parts[id] ?? b.assemblies[id])!;
+    lines.push(`~ ${node.name}: moved into ${parent ? b.assemblies[parent]!.name : 'Model (top level)'}`);
+    if (b.parts[id]) touched.add(id);
+  }
 
   // User joints (generated ones follow their generator).
   const jointText = (d: Doc, j: Joint) => `${j.type} joint: ${d.parts[j.parts[1]]?.name ?? j.parts[1]} into ${d.parts[j.parts[0]]?.name ?? j.parts[0]}`;

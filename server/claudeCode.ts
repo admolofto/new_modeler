@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import type { ImageAttachment } from '../src/ai/agent.ts';
 import { SYSTEM_PROMPT } from '../src/ai/prompt.ts';
 import { TIDY_SYSTEM } from '../src/ai/tidy.ts';
+import { mcpToolDefs } from '../src/ai/tools.ts';
 
 /**
  * Claude Code engine: runs `claude -p` headless on the user's Claude Code login (no API key),
@@ -69,7 +70,8 @@ function hintFor(text: string): string | undefined {
   return undefined;
 }
 
-export const MCP_TOOLS = ['get_model', 'apply_ops', 'inspect_part', 'cut_list'].map((t) => `mcp__modeler__${t}`);
+/** Every modeler tool, so a new one is allowed without editing a list here. */
+export const mcpToolNames = () => mcpToolDefs().map((t) => `mcp__modeler__${t.name}`);
 
 export function runClaudeCode(opts: {
   cfg: ClaudeCodeConfig;
@@ -93,7 +95,7 @@ export function runClaudeCode(opts: {
     '--tools', '',
     '--strict-mcp-config',
     '--mcp-config', mcpConfig,
-    '--allowedTools', MCP_TOOLS.join(','),
+    '--allowedTools', mcpToolNames().join(','),
     '--permission-mode', 'dontAsk',
     '--disable-slash-commands',
     ...(opts.images?.length ? ['--input-format', 'stream-json'] : []),

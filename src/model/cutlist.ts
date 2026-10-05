@@ -7,6 +7,7 @@ import type { PocketParams } from '../plugins/features/pocket';
 import { BOX_FACES, WORDS, type BoxFaceId } from '../plugins/shapes/box';
 import type { OutlineParams } from '../plugins/shapes/outline';
 import { CHANNEL_JOINTS, jointContact, jointDepth } from './joinery';
+import { nestSheets, type SheetLayout } from './nesting';
 import type { Doc, Feature, Material, Part } from './schema';
 import { formatInches, inches, lengthCell, UNITS_PER_INCH, type UnitSystem } from './units';
 import { boxSize, localBox } from './world';
@@ -14,7 +15,8 @@ import { boxSize, localBox } from './world';
 /**
  * The cut list: every part at the size to cut it, joinery included (a part sitting in a 1/4" dado
  * at each end is 1/2" longer than it looks), what to machine on it, grouped by material and
- * thickness, with sheet and board-foot estimates. Pure: formats lengths with the `fmt` it's given.
+ * thickness, with sheet layouts (`nesting.ts`) and board-foot estimates. Pure: formats lengths with the
+ * `fmt` it's given.
  */
 
 export interface Allowance {
@@ -60,7 +62,8 @@ export interface MaterialCuts {
   parts: number;
   /** Square inches of parts (cut sizes). */
   area: number;
-  sheets?: { count: number; size: [number, number]; utilization: number; oversize: string[] };
+  /** Sheet goods: the sheets to buy, each laid out (`layouts`, one per sheet). */
+  sheets?: { count: number; size: [number, number]; utilization: number; oversize: string[]; layouts: SheetLayout[] };
   boardFeet?: { net: number; withWaste: number; nominal: number };
   cost?: number;
 }
@@ -269,43 +272,6 @@ export function cutParts(doc: Doc, opts: CutListOptions = {}): { parts: CutPart[
   return { parts, joints };
 }
 
-/** Shelf-packs parts onto sheets (grain along the sheet's length) to estimate how many to buy. */
-export function packSheets(
-  items: { length: number; width: number; grain: boolean; name: string }[],
-  sheet: [number, number],
-  kerf: number,
-): { count: number; oversize: string[] } {
-  const [SW, SL] = sheet;
-  const oversize: string[] = [];
-  const placed: { along: number; across: number }[] = [];
-  for (const it of items) {
-    const fits = (along: number, across: number) => along <= SL && across <= SW;
-    const [long, short] = [Math.max(it.length, it.width), Math.min(it.length, it.width)];
-    if (it.grain ? fits(it.length, it.width) : fits(long, short)) placed.push(it.grain ? { along: it.length, across: it.width } : { along: long, across: short });
-    else if (!it.grain && fits(short, long)) placed.push({ along: short, across: long });
-    else oversize.push(it.name);
-  }
-  placed.sort((a, b) => b.across - a.across || b.along - a.along);
-  const sheets: { used: number; shelves: { h: number; used: number }[] }[] = [];
-  for (const it of placed) {
-    let done = false;
-    for (const s of sheets) {
-      const shelf = s.shelves.find((sh) => it.across <= sh.h && sh.used + it.along <= SL);
-      if (shelf) {
-        shelf.used += it.along + kerf;
-        done = true;
-        break;
-      }
-    }
-    if (done) continue;
-    let s = sheets.find((x) => x.used + it.across <= SW);
-    if (!s) sheets.push((s = { used: 0, shelves: [] }));
-    s.shelves.push({ h: it.across, used: it.along + kerf });
-    s.used += it.across + kerf;
-  }
-  return { count: sheets.length, oversize };
-}
-
 const sameList = (a: string[], b: string[]) => a.length === b.length && a.every((x, i) => x === b[i]);
 
 export function cutList(doc: Doc, opts: CutListOptions = {}): CutList {
@@ -340,11 +306,13 @@ export function cutList(doc: Doc, opts: CutListOptions = {}): CutList {
     const entry: MaterialCuts = { material, rows, parts: list.length, area };
     if (material.stock === 'sheet') {
       const size = material.sheet ?? DEFAULT_SHEET;
-      const packed = packSheets(list, size, kerf);
-      const utilization = packed.count ? area / (packed.count * sq(size[0]) * sq(size[1])) : 0;
-      entry.sheets = { count: packed.count, size, utilization, oversize: packed.oversize };
-      for (const name of packed.oversize) problems.push(`${name} is bigger than a ${formatInches(size[0])} × ${formatInches(size[1])} sheet of ${material.name}`);
-      if (material.price !== undefined) entry.cost = packed.count * material.price;
+      const nest = nestSheets(list, size, kerf);
+      const count = nest.sheets.length;
+      const placed = nest.sheets.reduce((s, sh) => s + sh.parts.reduce((t, p) => t + sq(p.w) * sq(p.h), 0), 0);
+      const utilization = count ? placed / (count * sq(size[0]) * sq(size[1])) : 0;
+      entry.sheets = { count, size, utilization, oversize: nest.oversize, layouts: nest.sheets };
+      for (const name of nest.oversize) problems.push(`${name} is bigger than a ${formatInches(size[0])} × ${formatInches(size[1])} sheet of ${material.name}`);
+      if (material.price !== undefined) entry.cost = count * material.price;
     } else {
       const nominal = nominalThickness(material);
       const net = list.reduce((s, p) => s + (sq(p.length) * sq(p.width) * sq(Math.max(nominal, p.thickness))) / 144, 0);
@@ -391,7 +359,7 @@ export function cutListText(list: CutList, fmt: (u: number) => string = formatIn
   const lines: string[] = [];
   for (const m of list.materials) {
     const est = m.sheets
-      ? `≈ ${m.sheets.count} sheet${m.sheets.count === 1 ? '' : 's'} ${fmt(m.sheets.size[0])} × ${fmt(m.sheets.size[1])}`
+      ? `${m.sheets.count} sheet${m.sheets.count === 1 ? '' : 's'} ${fmt(m.sheets.size[0])} × ${fmt(m.sheets.size[1])}`
       : m.boardFeet
         ? `${m.boardFeet.net.toFixed(1)} bd ft at ${quarters(m.boardFeet.nominal)} (≈ ${m.boardFeet.withWaste.toFixed(1)} with waste)`
         : '';

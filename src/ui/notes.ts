@@ -1,4 +1,5 @@
 import { targetPoint } from '../edit/targets';
+import { hiddenNodes } from '../model/visibility';
 import type { Op } from '../model/ops';
 import type { Annotation, Doc } from '../model/schema';
 import type { Store } from '../model/store';
@@ -192,8 +193,9 @@ export function mountNotes(o: NotesOptions): Notes {
 
   return {
     pins(doc) {
+      const hidden = hiddenNodes(doc);
       return openNotes(doc).flatMap((n, i): Pin[] => {
-        const pts = n.targets.map((t) => targetPoint(doc, t));
+        const pts = n.targets.filter((t) => !hidden.has(t.node)).map((t) => targetPoint(doc, t));
         const at = pts.find((p) => p !== null);
         if (!at) return [];
         return [{ noteId: n.id, label: String(i + 1), at, links: pts.filter((p): p is NonNullable<typeof p> => p !== null && p !== at), active: n.id === active }];

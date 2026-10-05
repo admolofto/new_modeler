@@ -3,9 +3,10 @@ import { features, generators, PluginError, shapes } from '../plugins';
 import { descendants, entityKind, ModelError, nextFeatureId, nextId, parentIndex } from './doc';
 import { captureOverride, deleteGeneratedPart, generatedOwner, regenerate } from './generate';
 import { syncJoints } from './joinery';
-import { Annotation, AnnotationTarget, Feature, Grain, Id, Joint, JointType, Material, Params, Rotation, Variable, Vec3, type Doc, type Part } from './schema';
+import { Annotation, AnnotationTarget, Feature, Grain, Id, Joint, JointType, Material, Override, Params, Rotation, Variable, Vec3, type Assembly, type Doc, type Part } from './schema';
 import { validateDoc } from './validate';
 import { setBinding, syncBindings, unbindVariable } from './variables';
+import { eulerXYZ, IDENTITY, mul, nodeAffine, toFrame, transpose } from './world';
 
 /**
  * The one mutation path (ROADMAP rule 2). UI, AI, markup and direct drags all
@@ -50,6 +51,8 @@ export function makeOpSchema<S extends z.ZodType, F extends z.ZodType, G extends
       name: z.string().default('Assembly'),
       transform: TransformInput.default(identityInput),
       generator: refs.generator.optional(),
+      /** Saved per-role edits, including roles not currently produced by the generator. */
+      overrides: z.record(z.string(), Override).optional(),
     }),
     z.object({
       kind: z.literal('joint'),
@@ -79,9 +82,11 @@ export function makeOpSchema<S extends z.ZodType, F extends z.ZodType, G extends
       to: Vec3.optional(),
       by: Vec3.optional(),
       rotation: Rotation.optional(),
-      /** Reparent: assembly id, or null for top level. */
+      /** Reparent: assembly id, or null for top level. Without parent, index reorders among siblings. */
       parent: Id.nullable().optional(),
       index: z.int().nonnegative().optional(),
+      /** Reparent without moving in the world: the local transform and position formulas adapt. */
+      keepWorld: z.boolean().optional(),
     }),
     z.object({ op: z.literal('addFeature'), part: Id, feature: refs.feature, index: z.int().nonnegative().optional() }),
     z.object({ op: z.literal('updateFeature'), part: Id, feature: Id, params: Params }),
@@ -99,12 +104,14 @@ export const Op = makeOpSchema({
 export type Op = z.input<typeof Op>;
 
 const PartPatch = z.strictObject({
+  hidden: z.boolean().optional(),
+  unclickable: z.boolean().optional(),
   name: z.string().optional(),
   material: Id.optional(),
   grain: Grain.optional(),
   shape: z.strictObject({ type: z.string().optional(), params: Params.optional() }).optional(),
 });
-const AssemblyPatch = z.strictObject({ name: z.string().optional(), params: Params.optional() });
+const AssemblyPatch = z.strictObject({ name: z.string().optional(), hidden: z.boolean().optional(), unclickable: z.boolean().optional(), params: Params.optional() });
 const MaterialPatch = Material.omit({ id: true }).partial().strict();
 const JointPatch = Joint.pick({ type: true, parts: true, params: true }).partial().strict();
 const AnnotationPatch = Annotation.omit({ id: true }).partial().strict();
@@ -193,13 +200,14 @@ function add(d: Doc, op: Extract<z.output<typeof Op>, { op: 'add' }>): void {
     }
     case 'assembly': {
       const id = claimId(d, e.id, 'a');
+      if (e.overrides && !e.generator) throw new ModelError('assembly overrides require a generator');
       d.assemblies[id] = {
         id,
         name: e.name,
         transform: e.transform,
         children: [],
         ...(e.generator && {
-          generator: { type: e.generator.type, params: generators.parse(e.generator.type, e.generator.params), overrides: {} },
+          generator: { type: e.generator.type, params: generators.parse(e.generator.type, e.generator.params), overrides: structuredClone(e.overrides ?? {}) },
         }),
       };
       attach(d, id, op.parent, op.index);
@@ -243,6 +251,8 @@ function update(d: Doc, id: string, rawPatch: Record<string, unknown>): void {
       }
       const generated = generatedOwner(d, id) !== null;
       if (patch.name !== undefined) part.name = patch.name;
+      if (patch.hidden !== undefined) part.hidden = patch.hidden;
+      if (patch.unclickable !== undefined) part.unclickable = patch.unclickable;
       if (patch.material !== undefined) part.material = patch.material;
       if (patch.grain !== undefined) part.grain = patch.grain;
       if (patch.shape) {
@@ -258,6 +268,8 @@ function update(d: Doc, id: string, rawPatch: Record<string, unknown>): void {
       const patch = parsePatch(AssemblyPatch, rawPatch);
       const asm = d.assemblies[id]!;
       if (patch.name !== undefined) asm.name = patch.name;
+      if (patch.hidden !== undefined) asm.hidden = patch.hidden;
+      if (patch.unclickable !== undefined) asm.unclickable = patch.unclickable;
       if (patch.params) {
         if (!asm.generator) throw new ModelError(`assembly "${asm.name}" has no generator params`);
         asm.generator.params = generators.parse(asm.generator.type, { ...asm.generator.params, ...patch.params });
@@ -336,17 +348,54 @@ function remove(d: Doc, id: string): void {
   }
 }
 
+/**
+ * Keeps a node where it is in the world under a new parent: its new local transform, and its
+ * position formulas offset to match. Formulas can only shift, so a bound position can't follow a
+ * parent that is turned differently.
+ */
+function keepWorld(d: Doc, node: Part | Assembly, parent: string | null): void {
+  const world = nodeAffine(d, node.id);
+  const oldParent = parentIndex(d).get(node.id);
+  const from = oldParent ? nodeAffine(d, oldParent) : IDENTITY;
+  const to = parent ? nodeAffine(d, parent) : IDENTITY;
+  const turned = from.m.some((row, i) => row.some((v, j) => Math.abs(v - to.m[i]![j]!) > 1e-9));
+  const bound = ['x', 'y', 'z'].filter((axis) => node.bind?.[`position.${axis}`] !== undefined);
+  if (turned && bound.length) {
+    throw new ModelError(`can't keep "${node.name}" in place: its position is bound to a formula and the new parent is turned differently; unbind position.${bound[0]} first or keep its parent`);
+  }
+  const position = toFrame(to, world.t).map(Math.round) as Vec3;
+  if (!turned) {
+    const shift = position.map((v, i) => v - node.transform.position[i]!);
+    for (const [i, axis] of ['x', 'y', 'z'].entries()) {
+      const expr = node.bind?.[`position.${axis}`];
+      if (expr !== undefined && shift[i]) node.bind![`position.${axis}`] = `(${expr}) + (${shift[i]})`;
+    }
+  }
+  node.transform = { position, rotation: turned ? eulerXYZ(mul(transpose(to.m), world.m)) : node.transform.rotation };
+}
+
 function move(d: Doc, op: Extract<z.output<typeof Op>, { op: 'move' }>): void {
   const node = d.parts[op.id] ?? d.assemblies[op.id];
   if (!node) throw new ModelError(`no part or assembly "${op.id}"`);
   const generated = generatedOwner(d, op.id) !== null;
+  if (op.keepWorld) {
+    if (op.parent === undefined) throw new ModelError('keepWorld applies when reparenting: give parent (an assembly id, or null for top level)');
+    if (op.to || op.by || op.rotation) throw new ModelError("keepWorld keeps the world placement, so it can't be combined with to, by or rotation");
+  }
   if (op.parent !== undefined) {
     if (generated) throw new ModelError(`can't reparent generated part "${node.name}"`);
     if (op.parent === op.id || (op.parent && descendants(d, op.id).includes(op.parent))) {
       throw new ModelError(`can't move "${node.name}" inside itself`);
     }
+    if (op.parent && !d.assemblies[op.parent]) throw new ModelError(`no assembly "${op.parent}"`);
+    if (op.keepWorld) keepWorld(d, node, op.parent);
     detach(d, op.id);
     attach(d, op.id, op.parent, op.index);
+  } else if (op.index !== undefined) {
+    if (generated) throw new ModelError(`can't reorder generated part "${node.name}"; its generator sets the order`);
+    const parent = parentIndex(d).get(op.id) ?? null;
+    detach(d, op.id);
+    attach(d, op.id, parent, Math.min(op.index, (parent ? d.assemblies[parent]!.children : d.roots).length));
   }
   if (op.to) node.transform.position = [...op.to];
   if (op.by) node.transform.position = node.transform.position.map((c, i) => c + op.by![i]!) as typeof op.by;

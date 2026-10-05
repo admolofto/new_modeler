@@ -3,8 +3,8 @@ import type { AiRequest, Message } from '../src/ai/agent.ts';
 
 /**
  * Server-side Claude call, shared by the dev-server proxy and the eval runner. The browser
- * builds the conversation; model, effort and API options are fixed here so a page can't
- * pick them (and the key never leaves Node).
+ * builds the conversation and can select a model; effort and API options are set here
+ * and the key never leaves Node.
  */
 
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';

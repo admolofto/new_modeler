@@ -7,14 +7,15 @@ import { generators } from '../plugins';
 import { el } from './dom';
 import { icon } from './icons';
 import type { Selection } from './selection';
+import { sheetDiagram, type DiagramOptions } from './sheetDiagram';
 import { toast } from './toast';
 import { fmt, LENGTH_HINT, parse, shop, units } from './units';
 
 /**
  * The shop sheet (L), over the 3D view: the joinery-aware cut list, grouped by material, with
- * sheet / board-foot estimates, CSV export and a print view; and the materials editor (thickness,
- * sheet size, price, add from the library). Material edits are ops through the store like every
- * other edit.
+ * board-foot estimates and each sheet drawn with its parts laid out on it, CSV export and a print
+ * view; and the materials editor (thickness, sheet size, price, add from the library). Material
+ * edits are ops through the store like every other edit.
  */
 
 const STYLE = `
@@ -42,6 +43,16 @@ const STYLE = `
 .shop tr.part { cursor: pointer; }
 .shop tr.part:hover td { background: var(--hover); }
 .shop .nm { font-weight: 500; }
+.shop .key { display: inline-grid; place-items: center; min-width: 18px; height: 16px; margin-right: 6px; padding: 0 4px; border-radius: 4px;
+  background: var(--press); color: var(--fg-2); font-size: 10.5px; font-weight: 600; vertical-align: 1px; font-variant-numeric: tabular-nums; }
+.shop .sheets { display: flex; flex-wrap: wrap; gap: 14px 20px; margin: 14px 0 4px; }
+.shop figure.sheet { flex: 0 1 auto; min-width: 0; max-width: 100%; margin: 0; }
+.shop figure.sheet figcaption { margin-bottom: 4px; color: var(--fg-2); font-size: var(--fs-xs); }
+.shop figure.sheet > svg { display: block; max-width: 100%; height: auto; }
+.shop .sheet .part { cursor: pointer; }
+.shop .sheet .part > rect { transition: filter .12s; }
+.shop .sheet .part:hover > rect, .shop .sheet .part.hov > rect, .shop .sheet .part.lit > rect { filter: brightness(1.15); }
+.shop .sheet .part.sel > rect { stroke: var(--sel); stroke-width: 3px; }
 .shop .ops { margin-top: 3px; color: var(--fg-2); font-size: var(--fs-xs); }
 .shop .ops div::before { content: '· '; color: var(--fg-3); }
 .shop .allow { margin-top: 3px; color: #b7c2ff; font-size: var(--fs-xs); }
@@ -72,6 +83,10 @@ const STYLE = `
   .shop-print td.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
   .shop-print .ops { font-size: 8.5pt; color: #333; }
   .shop-print .warn { border: 1px solid #c60; padding: 4pt 6pt; margin: 6pt 0; }
+  .shop-print .sheets { margin-top: 8pt; }
+  .shop-print figure { margin: 0 0 8pt; break-inside: avoid; page-break-inside: avoid; }
+  .shop-print figcaption { margin-bottom: 2pt; font-size: 9pt; color: #333; }
+  .shop-print figure > svg { display: block; height: auto; }
 }
 `;
 
@@ -95,7 +110,7 @@ function materialSummary(m: MaterialCuts): string {
   const bits = [`${fmt(m.material.thickness)}`, `${m.parts} part${m.parts === 1 ? '' : 's'}`];
   if (m.sheets) {
     const [w, l] = m.sheets.size;
-    bits.push(`≈ ${m.sheets.count} sheet${m.sheets.count === 1 ? '' : 's'} ${fmt(w)} × ${fmt(l)}${m.sheets.count ? ` (${Math.round(m.sheets.utilization * 100)}% used)` : ''}`);
+    bits.push(`${m.sheets.count} sheet${m.sheets.count === 1 ? '' : 's'} ${fmt(w)} × ${fmt(l)}${m.sheets.count ? ` (${Math.round(m.sheets.utilization * 100)}% used)` : ''}`);
   }
   if (m.boardFeet) {
     bits.push(`${m.boardFeet.net.toFixed(1)} bd ft at ${quarters(m.boardFeet.nominal)} — buy ≈ ${m.boardFeet.withWaste.toFixed(1)} with 20% waste`);
@@ -109,6 +124,32 @@ const len = (u: number) => shop(fmt(u));
 const lenCell = (u: number) => el('td', { class: 'num' }, ...len(u));
 const grainText = (r: CutRow) => (r.grain ? 'along length' : r.shaped ? 'shaped' : 'any');
 
+const SHEET_NOTE = 'Sheets are drawn with the grain left to right; hatched = offcut. Every cut runs edge to edge with a 1/8" kerf, and parts with no grain set may turn.';
+
+/** Each part's cut-list number: its row's place in the whole list, from 1. */
+function partKeys(list: CutList): Map<string, string> {
+  const keys = new Map<string, string>();
+  list.materials.flatMap((m) => m.rows).forEach((r, i) => r.ids.forEach((id) => keys.set(id, String(i + 1))));
+  return keys;
+}
+
+/** A sheet material's sheets, each drawn with its parts on it. */
+function sheetFigures(m: MaterialCuts, keys: Map<string, string>, opts: Partial<DiagramOptions> = {}): HTMLElement[] {
+  const s = m.sheets;
+  if (!s?.layouts.length) return [];
+  const area = s.size[0] * s.size[1];
+  const figures = s.layouts.map((layout, i) => {
+    const used = layout.parts.reduce((t, p) => t + p.w * p.h, 0) / area;
+    return el(
+      'figure',
+      { class: 'sheet' },
+      el('figcaption', {}, `Sheet ${i + 1} of ${s.layouts.length} · ${Math.round(used * 100)}% used`),
+      sheetDiagram(layout, { size: s.size, color: m.material.color, key: (id) => keys.get(id), ...opts }),
+    );
+  });
+  return [el('div', { class: 'sheets' }, ...figures)];
+}
+
 function printView(list: CutList): HTMLElement {
   const parts = list.materials.reduce((s, m) => s + m.parts, 0);
   const out = el(
@@ -117,16 +158,19 @@ function printView(list: CutList): HTMLElement {
     el('h1', {}, 'Cut list'),
     el('div', {}, `${new Date().toLocaleDateString()} · ${parts} parts · ${units.system === 'mm' ? 'millimetres' : 'inches'} · sizes include joinery allowances${list.cost !== undefined ? ` · est. ${money(list.cost)}` : ''}`),
   );
+  if (list.materials.some((m) => m.sheets?.count)) out.append(el('div', {}, ...shop(SHEET_NOTE)));
   if (list.problems.length) out.append(el('div', { class: 'warn' }, ...list.problems.map((p) => el('div', {}, `⚠ ${p}`))));
+  const keys = partKeys(list);
   for (const m of list.materials) {
     out.append(el('h2', {}, m.material.name, el('span', {}, ` — ${materialSummary(m)}`)));
-    const table = el('table', {}, el('tr', {}, ...['Qty', 'Part', 'Length', 'Width', 'Thick', 'Grain', 'Joinery / machining'].map((h) => el('th', {}, h))));
+    const table = el('table', {}, el('tr', {}, ...['#', 'Qty', 'Part', 'Length', 'Width', 'Thick', 'Grain', 'Joinery / machining'].map((h) => el('th', {}, h))));
     for (const r of m.rows) {
       const ops = [allowanceText(r), ...r.ops, ...r.notes.map((n) => `⚠ ${n}`)].filter(Boolean);
       table.append(
         el(
           'tr',
           {},
+          el('td', { class: 'num' }, keys.get(r.ids[0]!) ?? ''),
           el('td', { class: 'num' }, String(r.qty)),
           el('td', {}, r.names.join(' / ')),
           lenCell(r.length),
@@ -137,7 +181,7 @@ function printView(list: CutList): HTMLElement {
         ),
       );
     }
-    out.append(table);
+    out.append(table, ...sheetFigures(m, keys, { print: true }));
   }
   return out;
 }
@@ -194,10 +238,13 @@ export function mountShopPanel(parent: HTMLElement, o: ShopOptions): ShopPanel {
         { class: 'summary' },
         `${parts} part${parts === 1 ? '' : 's'} in ${cl.materials.length} material${cl.materials.length === 1 ? '' : 's'}${cl.cost !== undefined ? ` · est. ${money(cl.cost)}` : ''}${preview}`,
       ),
-      el('div', { class: 'hint' }, 'Sizes to cut, joinery included. Click a row to select those parts.'),
+      el('div', { class: 'hint' }, 'Sizes to cut, joinery included. Click a row, or a part on a sheet, to select it.'),
     );
     if (cl.problems.length) out.push(el('div', { class: 'problems' }, ...cl.problems.map((p) => el('div', {}, p))));
     const heads = ['Qty', 'Part', 'Length', 'Width', 'Thick', 'Grain'];
+    const keys = partKeys(cl);
+    const pick = (id: string) => o.selection.set([{ node: id }]);
+    const hover = (id: string | null) => o.selection.setHover(id ? { node: id } : null);
     for (const m of cl.materials) {
       out.push(el('h3', {}, el('b', {}, ...shop(m.material.name)), el('span', { class: 'len' }, ...shop(materialSummary(m)))));
       const table = el('table', { class: 'cuts' }, el('tr', {}, ...heads.map((h, i) => el('th', { class: i >= 2 && i <= 4 ? 'num' : '' }, h))));
@@ -210,19 +257,20 @@ export function mountShopPanel(parent: HTMLElement, o: ShopOptions): ShopPanel {
           'tr',
           { class: 'part', title: 'Select in the view' },
           el('td', { class: 'qty' }, String(r.qty)),
-          el('td', {}, el('div', { class: 'nm' }, r.names.join(' / ')), detail),
+          el('td', {}, el('div', { class: 'nm' }, el('span', { class: 'key' }, keys.get(r.ids[0]!) ?? ''), r.names.join(' / ')), detail),
           lenCell(r.length),
           lenCell(r.width),
           lenCell(r.thickness),
           el('td', { class: 'dim' }, grainText(r)),
         );
         tr.addEventListener('click', () => {
-          o.selection.setMode('part');
           o.selection.set(r.ids.filter((id) => o.shown().parts[id]).map((node) => ({ node })));
         });
+        tr.addEventListener('pointerenter', () => light(r.ids, true));
+        tr.addEventListener('pointerleave', () => light(r.ids, false));
         table.append(tr);
       }
-      out.push(table);
+      out.push(table, ...sheetFigures(m, keys, { pick, hover }));
     }
     if (cl.joints.length) {
       const rows = cl.joints.map((j) =>
@@ -244,7 +292,7 @@ export function mountShopPanel(parent: HTMLElement, o: ShopOptions): ShopPanel {
         ),
       );
     }
-    out.push(el('div', { class: 'fine' }, ...shop('Sheet counts are a quick shelf-packing estimate (1/8" kerf, grain along the sheet) — nest before you buy.')));
+    out.push(el('div', { class: 'fine' }, ...shop(SHEET_NOTE)));
     return out;
   }
 
@@ -346,6 +394,23 @@ export function mountShopPanel(parent: HTMLElement, o: ShopOptions): ShopPanel {
     ];
   }
 
+  /** Lights a row's parts on the sheets while the row is hovered. */
+  function light(ids: string[], on: boolean) {
+    for (const id of ids) body.querySelectorAll(`[data-part="${CSS.escape(id)}"]`).forEach((g) => g.classList.toggle('lit', on));
+  }
+
+  /** Shows the selection and the hovered part on the sheets. */
+  function mark() {
+    if (!open) return;
+    const sel = new Set(o.selection.targets.map((t) => t.node));
+    const hov = o.selection.hover?.node;
+    body.querySelectorAll('[data-part]').forEach((g) => {
+      const id = g.getAttribute('data-part')!;
+      g.classList.toggle('sel', sel.has(id));
+      g.classList.toggle('hov', id === hov);
+    });
+  }
+
   function render() {
     if (!open) return;
     cutsTab.setAttribute('aria-selected', String(tab === 'cuts'));
@@ -359,6 +424,7 @@ export function mountShopPanel(parent: HTMLElement, o: ShopOptions): ShopPanel {
     const doc = tab === 'cuts' ? o.shown() : o.store.doc;
     body.replaceChildren(...(tab === 'cuts' ? cutsBody(doc) : materialsBody(doc)));
     body.scrollTop = scroll;
+    mark();
     if (focusIndex >= 0) {
       const again = body.querySelectorAll('input')[focusIndex];
       if (again && typed !== null) {
@@ -378,6 +444,7 @@ export function mountShopPanel(parent: HTMLElement, o: ShopOptions): ShopPanel {
 
   o.store.subscribe(render);
   units.subscribe(render);
+  o.selection.subscribe(mark);
   window.addEventListener('keydown', (e) => {
     const t = e.target as HTMLElement;
     if (t.closest('input, select, textarea') || e.ctrlKey || e.metaKey || e.altKey) return;

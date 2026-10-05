@@ -22,9 +22,9 @@ import { fmt, parse, shop } from './units';
  * opposite corner, then how far it comes up (or out, on a wall). It draws on the floor or on any flat
  * face under the cursor, in that face's part's frame, so a block drawn on a turned block turns with
  * it and comes out of the face. Corners and heights snap to other parts (edit/snap.ts), else a 1/2"
- * grid; Alt = 1/64", no snapping. Type sizes any time ("24, 18" Enter, then the height). Left-drag
+ * grid; Alt = 1/64", no snapping. Type sizes any time ("24, 18" Enter, then the height). Middle-drag
  * still orbits, even mid-draw; Esc backs out. One block = one dispatch = one undo step, and the tool
- * stays on for the next one.
+ * stays on for the next one. While a folder is isolated, blocks go into it (in place).
  */
 
 export interface BlockToolOptions {
@@ -35,6 +35,10 @@ export interface BlockToolOptions {
   draft: BlockDraft;
   /** Why direct edits are off right now, or null. */
   editBlocked(): string | null;
+  /** The doc as drawn (an isolated folder only): what corners and heights snap to. */
+  view?(doc: Doc): Doc;
+  /** The isolated folder new blocks go into, or null (the top level). */
+  folder?(): string | null;
   /** The block being drawn, as a doc to show (null: the store's). */
   setPreview(doc: Doc | null): void;
   /** Dimension lines for what's being drawn (null: back to normal). */
@@ -84,8 +88,8 @@ export function attachBlockTool(o: BlockToolOptions): BlockTool {
   let typed = '';
   let down: { x: number; y: number; moved: boolean } | null = null;
   let last: PointerEvent | null = null;
-  /** The block the height phase would add (what a click commits). */
-  let pending: Op | null = null;
+  /** The block the height phase would add (what a click commits), and the ops that add it. */
+  let pending: { id: string; ops: Op[] } | null = null;
   const listeners = new Set<() => void>();
 
   // ── Geometry ────────────────────────────────────────────────────────────────
@@ -207,7 +211,7 @@ export function attachBlockTool(o: BlockToolOptions): BlockTool {
   // ── Phases ──────────────────────────────────────────────────────────────────
   function update(e: PointerEvent) {
     setRay(e);
-    const doc = store.doc;
+    const doc = o.view?.(store.doc) ?? store.doc;
     pending = null;
     if (phase.kind === 'idle') {
       o.setPreview(null);
@@ -265,13 +269,16 @@ export function attachBlockTool(o: BlockToolOptions): BlockTool {
     const box = rectBox(pl, phase.first, phase.second, h);
     const doc = store.doc;
     const { transform, size: sz } = blockPlacement(pl.frame, box, pl.turns);
-    const op: Op = { op: 'add', entity: { kind: 'block', id: nextId(doc, 'b'), transform, size: sz } };
-    const r = applyOps(doc, [op]);
+    const id = nextId(doc, 'b');
+    const folder = o.folder?.() ?? null;
+    // Into the isolated folder, staying where it was drawn (else it'd be hidden as it's made).
+    const ops: Op[] = [{ op: 'add', entity: { kind: 'block', id, transform, size: sz } }, ...(folder ? [{ op: 'move', id, parent: folder, keepWorld: true } as Op] : [])];
+    const r = applyOps(doc, ops);
     o.setSnapNode(node);
     o.setDims(frameBoxDimensions(pl.frame, box));
     o.draft.set({ rect: corners(pl, phase.first, phase.second) });
     if (r.ok) {
-      pending = op;
+      pending = { id, ops };
       o.setPreview(r.doc);
     }
     if (e) show(e, [`${pl.k === 1 ? 'height' : 'depth'} ${fmt(h)}`, 'click to finish', ...(why ? [why] : []), ...(r.ok ? [] : [r.error.split('\n')[0]!])].join(' · '), !r.ok);
@@ -279,7 +286,7 @@ export function attachBlockTool(o: BlockToolOptions): BlockTool {
 
   function click(e: PointerEvent) {
     setRay(e);
-    const doc = store.doc;
+    const doc = o.view?.(store.doc) ?? store.doc;
     if (phase.kind === 'idle') {
       const under = planeUnder(doc);
       if (!under || 'reason' in under) return;
@@ -303,13 +310,12 @@ export function attachBlockTool(o: BlockToolOptions): BlockTool {
   }
 
   function commit() {
-    if (!pending || pending.op !== 'add') return;
-    const id = pending.entity.id!;
-    const r = store.dispatch([pending]);
+    if (!pending) return;
+    const { id } = pending;
+    const r = store.dispatch(pending.ops);
     clearFeedback();
     phase = { kind: 'idle' };
     if (!r.ok) return o.onStatus(r.error, true);
-    o.selection.setMode('part');
     o.selection.set([{ node: id }]);
     o.onStatus(`Added ${store.doc.parts[id]?.name ?? 'a block'}. Draw the next one, or Esc.`);
     if (last) update(last);

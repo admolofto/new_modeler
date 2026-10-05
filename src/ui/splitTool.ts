@@ -3,6 +3,7 @@ import { BLOCK_STEP, blockSize, splitOps } from '../edit/blocks';
 import { boxDimensions, type DimLine } from '../edit/dimensions';
 import { inferSplit } from '../edit/snap';
 import type { V3 } from '../geometry/types';
+import type { Doc } from '../model/schema';
 import type { Store } from '../model/store';
 import { UNITS_PER_INCH } from '../model/units';
 import { apply, frameBoxes, nodeAffine, rotate, type Box3 } from '../model/world';
@@ -29,6 +30,8 @@ export interface SplitToolOptions {
   selection: Selection;
   draft: BlockDraft;
   editBlocked(): string | null;
+  /** The doc as drawn (an isolated folder only): what cuts snap to. */
+  view?(doc: Doc): Doc;
   setDims(lines: DimLine[] | null): void;
   setSnapNode(id: string | null): void;
   onStatus(msg: string, error?: boolean): void;
@@ -136,7 +139,7 @@ export function attachSplitTool(o: SplitToolOptions): SplitTool {
     const center = new THREE.Vector3(...apply(A, [size[0] / 2, size[1] / 2, size[2] / 2])).divideScalar(U);
     const tol = e.altKey ? 0 : SNAP_PX * viewport.unitsPerPx(center);
     const boxes = new Map([...frameBoxes(doc, A)].filter(([other]) => other !== part.id));
-    const s = inferSplit(doc, k, size[k], raw, tol, boxes, e.altKey ? 1 : BLOCK_STEP);
+    const s = inferSplit(o.view?.(doc) ?? doc, k, size[k], raw, tol, boxes, e.altKey ? 1 : BLOCK_STEP);
     if (!s) {
       o.draft.set(null);
       o.setDims(null);
