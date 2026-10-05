@@ -1,11 +1,12 @@
-import { deepEqual, parentIndex } from '../model/doc';
-import type { Bindings, Doc, Joint, JointCut, Part, Variable } from '../model/schema';
+import { deepEqual, movingParts, parentIndex } from '../model/doc';
+import { motionName, motionSummary } from '../model/motion';
+import type { Bindings, Doc, Joint, JointCut, Motion, Part, Variable } from '../model/schema';
 import { formatInches } from '../model/units';
 
 /**
  * Human-readable summary of what a proposal changes, for the preview card, plus the part
  * ids to highlight. A regenerated assembly is reported as its param changes, not as every
- * part the generator rebuilt.
+ * part the generator rebuilt (its animations included).
  */
 export interface DocDiff {
   lines: string[];
@@ -13,9 +14,11 @@ export interface DocDiff {
   touched: Set<string>;
 }
 
-const COUNTS = new Set(['shelves']);
+const COUNTS = new Set(['shelves', 'doors']);
+const ANGLES = new Set(['doorAngle']);
 
 function fmt(key: string, v: unknown): string {
+  if (typeof v === 'number' && ANGLES.has(key)) return `${v}°`;
   if (typeof v === 'number') return COUNTS.has(key) || !Number.isInteger(v) ? String(v) : formatInches(v);
   if (Array.isArray(v)) return `[${v.map((x) => fmt(key, x)).join(', ')}]`;
   if (v && typeof v === 'object') return `{${Object.entries(v).map(([k, x]) => `${k}: ${fmt(k, x)}`).join(', ')}}`;
@@ -122,9 +125,23 @@ export function diffDocs(a: Doc, b: Doc): DocDiff {
 
   for (const [id, asm] of Object.entries(b.assemblies)) {
     const old = a.assemblies[id];
+    if (old?.generator && asm.generator && !deepEqual(old.generator.params, asm.generator.params)) regenerated.add(id);
+  }
+  const parentOf = new Map<string, string>();
+  for (const asm of Object.values(b.assemblies)) for (const c of asm.children) parentOf.set(c, asm.id);
+  const oldParentOf = new Map<string, string>();
+  for (const asm of Object.values(a.assemblies)) for (const c of asm.children) oldParentOf.set(c, asm.id);
+  /** Generated folders come and go with their assembly's params, like its parts. */
+  const quietFolder = (d: Doc, parents: Map<string, string>, id: string) => {
+    const p = parents.get(id);
+    return d.assemblies[id]?.role !== undefined && p !== undefined && (regenerated.has(p) || !a.assemblies[p] || !b.assemblies[p]);
+  };
+
+  for (const [id, asm] of Object.entries(b.assemblies)) {
+    const old = a.assemblies[id];
     const gen = asm.generator ? ` (${asm.generator.type})` : '';
     if (!old) {
-      lines.push(`+ ${asm.name}${gen}`);
+      if (!quietFolder(b, parentOf, id)) lines.push(`+ ${asm.name}${gen}`);
       continue;
     }
     const bits: string[] = [];
@@ -132,19 +149,20 @@ export function diffDocs(a: Doc, b: Doc): DocDiff {
     if (!!old.hidden !== !!asm.hidden) bits.push(asm.hidden ? 'hidden in viewport' : 'shown in viewport');
     if (!!old.unclickable !== !!asm.unclickable) bits.push(asm.unclickable ? 'made unclickable' : 'made clickable');
     if (!deepEqual(old.transform, asm.transform)) bits.push(`moved to ${fmt('position', asm.transform.position)}`);
-    if (old.generator && asm.generator && !deepEqual(old.generator.params, asm.generator.params)) {
-      regenerated.add(id);
-      bits.push(...paramChanges(old.generator.params, asm.generator.params, 6));
+    if (regenerated.has(id)) {
+      bits.push(...paramChanges(old.generator!.params, asm.generator!.params, 6));
     }
     bits.push(...bindChanges(old.bind, asm.bind));
     if (bits.length) lines.push(`~ ${asm.name}: ${bits.join('; ')}`);
   }
-  for (const [id, asm] of Object.entries(a.assemblies)) if (!b.assemblies[id]) lines.push(`− ${asm.name}`);
+  for (const [id, asm] of Object.entries(a.assemblies)) if (!b.assemblies[id] && !quietFolder(a, oldParentOf, id)) lines.push(`− ${asm.name}`);
 
-  const parentOf = new Map<string, string>();
-  for (const asm of Object.values(b.assemblies)) for (const c of asm.children) parentOf.set(c, asm.id);
   const quiet = (id: string) => {
-    const p = parentOf.get(id);
+    let p = parentOf.get(id);
+    if (p !== undefined && b.assemblies[p]?.role !== undefined) {
+      if (!a.assemblies[p]) return true;
+      p = parentOf.get(p);
+    }
     return p !== undefined && (regenerated.has(p) || !a.assemblies[p]);
   };
 
@@ -159,8 +177,12 @@ export function diffDocs(a: Doc, b: Doc): DocDiff {
     }
   }
   const removedParent = (id: string) => {
-    for (const asm of Object.values(a.assemblies)) if (asm.children.includes(id)) return !b.assemblies[asm.id] || regenerated.has(asm.id);
-    return false;
+    let p = oldParentOf.get(id);
+    if (p !== undefined && a.assemblies[p]?.role !== undefined) {
+      if (!b.assemblies[p]) return true;
+      p = oldParentOf.get(p);
+    }
+    return p !== undefined && (!b.assemblies[p] || regenerated.has(p));
   };
   for (const [id, part] of Object.entries(a.parts)) if (!b.parts[id] && !removedParent(id)) lines.push(`− ${part.name}${part.block ? ' (block)' : ''}`);
 
@@ -181,6 +203,17 @@ export function diffDocs(a: Doc, b: Doc): DocDiff {
     else if (!deepEqual(old, j)) lines.push(`~ ${jointText(b, j)}`);
   }
   for (const [id, j] of Object.entries(a.joints)) if (j.role === undefined && !b.joints[id]) lines.push(`− ${jointText(a, j)}`);
+
+  // User animations (generated ones follow their generator); what they move is highlighted.
+  const motionText = (d: Doc, m: Motion) => `${motionName(d, m)} animation: ${motionSummary(m)}`;
+  for (const [id, m] of Object.entries(b.motions)) {
+    if (m.role !== undefined) continue;
+    const old = a.motions[id];
+    if (old && deepEqual(old, m)) continue;
+    lines.push(`${old ? '~' : '+'} ${motionText(b, m)}`);
+    for (const p of movingParts(b, m.nodes)) touched.add(p);
+  }
+  for (const [id, m] of Object.entries(a.motions)) if (m.role === undefined && !b.motions[id]) lines.push(`− ${motionText(a, m)}`);
 
   const quote = (s: string) => `"${s.length > 48 ? `${s.slice(0, 47)}…` : s}"`;
   for (const [id, n] of Object.entries(b.annotations)) {

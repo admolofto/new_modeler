@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import type { Vec3 } from '../../model/schema';
+import type { Feature, Vec3 } from '../../model/schema';
 import { formatInches as f, inches } from '../../model/units';
-import { PluginError, registerGenerator, type GenFace, type GenFaceDrive, type GenJoint, type GenPart } from '../registry';
+import { PluginError, registerGenerator, type GenFace, type GenFaceDrive, type GenGroup, type GenJoint, type GenMotion, type GenPart } from '../registry';
 
 export interface CarcassParams {
   width: number;
@@ -18,6 +18,12 @@ export interface CarcassParams {
   drawerMaterial?: string | undefined;
   drawerBottomMaterial?: string | undefined;
   frontMaterial?: string | undefined;
+  /** Full-overlay doors filling the face below the drawers: 0, 1 or a pair. */
+  doors: number;
+  /** A single door's hinge side (default left); a pair hinges on its outer sides. */
+  doorHinge?: 'left' | 'right' | undefined;
+  /** How far the doors open, in degrees (default 105). */
+  doorAngle?: number | undefined;
 }
 
 const DADO_DEPTH = inches(1 / 4);
@@ -32,6 +38,11 @@ const SLIDE_GAP = inches(1 / 2); // each side of a drawer box, for side-mount sl
 const BOX_CLEAR = inches(1 / 2); // above and below a drawer box
 const MIN_FRONT = inches(3);
 const MIN_BOX = inches(2);
+const MIN_DOOR = inches(8);
+/** 35 mm concealed-hinge cups: centered 22.5 mm from the hinge edge, 3 1/2" from the door's ends. */
+const CUP_D = 88;
+const CUP_IN = 57;
+const CUP_END = inches(3.5);
 
 const schema = z
   .object({
@@ -51,11 +62,27 @@ const schema = z
     drawerMaterial: z.string().min(1).optional(),
     drawerBottomMaterial: z.string().min(1).optional(),
     frontMaterial: z.string().min(1).optional(),
+    doors: z.int().min(0).max(2).default(0),
+    doorHinge: z.enum(['left', 'right']).optional(),
+    doorAngle: z.number().gt(0).max(180).optional(),
   })
   .refine((p) => !p.toeKick || p.toeKick.height < p.height / 2, {
     message: 'toe kick must be less than half the cabinet height',
     path: ['toeKick', 'height'],
   });
+
+/** Concealed-hinge cups down a door's hinge edge, on its back: 2 up to 40" tall, 3 up to 60", then 4. */
+export function hingeCups(width: number, height: number, thickness: number, side: 'left' | 'right'): Feature[] {
+  const depth = Math.min(inches(1 / 2), thickness - inches(1 / 8));
+  if (depth <= 0) return [];
+  const n = height <= inches(40) ? 2 : height <= inches(60) ? 3 : 4;
+  const u = side === 'left' ? CUP_IN : width - CUP_IN;
+  return Array.from({ length: n }, (_, i) => ({
+    id: `f${i + 1}`,
+    type: 'hole',
+    params: { face: 'face:back', at: [u, CUP_END + Math.round((i * (height - 2 * CUP_END)) / (n - 1))], d: CUP_D, depth },
+  }));
+}
 
 type Materials = Record<string, { thickness: number; name: string }>;
 
@@ -84,7 +111,8 @@ export function drawerFrontHeights(heights: number[], faceHeight: number): numbe
  * visible (butt) size; dado and rabbet joints cut their channels into the sides and the cut list
  * adds the depth to the panels that sit in them (model/joinery.ts).
  * Drawers: full-overlay fronts stacked down from the top, each with a five-piece box
- * (bottom, sides, back, sub-front) on side-mount slides; shelves go in the bay below.
+ * (bottom, sides, back, sub-front) on side-mount slides, in a "Drawer N" folder; shelves go in
+ * the bay below.
  */
 function generate(p: CarcassParams, materials: Materials) {
   const need = (id: string, what: string) => {
@@ -108,8 +136,11 @@ function generate(p: CarcassParams, materials: Materials) {
   if (p.toeKick && kD + T > D - zIn) throw new PluginError('toe kick is deeper than the cabinet');
 
   const parts: GenPart[] = [];
+  const groups: GenGroup[] = [];
   const joints: GenJoint[] = [];
-  const panel = (role: string, name: string, grain: GenPart['grain'], position: Vec3, size: Vec3, material = p.material) =>
+  const motions: GenMotion[] = [];
+  let group: string | undefined; // the folder panels go in
+  const panel = (role: string, name: string, grain: GenPart['grain'], position: Vec3, size: Vec3, material = p.material, features: Feature[] = []) =>
     parts.push({
       role,
       name,
@@ -117,6 +148,8 @@ function generate(p: CarcassParams, materials: Materials) {
       grain,
       position,
       shape: { type: 'box', params: { x: size[0], y: size[1], z: size[2] } },
+      ...(features.length && { features }),
+      ...(group !== undefined && { group }),
     });
 
   panel('side-left', 'Left side', 'y', [0, 0, sideZ], [T, H, D - sideZ]);
@@ -127,8 +160,10 @@ function generate(p: CarcassParams, materials: Materials) {
   if (p.back === 'applied') panel('back', 'Back', 'y', [0, kH, 0], [W, H - kH, BT], backMatId);
   if (p.toeKick) panel('kick', 'Toe kick', 'x', [T, 0, D - kD - T], [innerW, kH, T]);
 
-  // Drawers, top-down. `ceiling` ends up at the bottom of the lowest drawer's space.
+  // Drawers, top-down. `ceiling` ends up at the bottom of the lowest drawer's space, `frontTop` at the
+  // top of what's left of the face (where doors start).
   let ceiling = H - T;
+  let frontTop = H - TOP_REVEAL;
   if (p.drawers.length) {
     const frontMat = p.frontMaterial ?? p.material;
     const boxMat = p.drawerMaterial ?? p.material;
@@ -143,10 +178,12 @@ function generate(p: CarcassParams, materials: Materials) {
 
     const x0 = T + SLIDE_GAP;
     const z0 = zIn + inches(1 / 2);
-    let top = H - TOP_REVEAL;
     drawerFrontHeights(p.drawers, H - kH).forEach((fh, i) => {
       const n = i + 1;
       const r = `drawer-${n}`;
+      groups.push({ role: r, name: `Drawer ${n}` });
+      group = r;
+      const top = frontTop;
       const bottom = top - fh;
       panel(`${r}-front`, `Drawer ${n} front`, 'x', [SIDE_REVEAL, bottom, D], [W - 2 * SIDE_REVEAL, fh, FT], frontMat);
       // The box fits inside its front's band, clear of the carcass top and bottom.
@@ -164,9 +201,35 @@ function generate(p: CarcassParams, materials: Materials) {
           joints.push({ role: `${r}-${end}-${side}`, type: 'rabbet', parts: [`${r}-side-${side}`, `${r}-${end}`], params: { depth: Math.round(DT / 2) } });
         }
       }
+      // Full-extension slides: the box comes all the way out.
+      const drawerParts = ['front', 'bottom', 'side-left', 'side-right', 'back', 'sub-front'].map((s) => `${r}-${s}`);
+      motions.push({ role: r, name: `Drawer ${n}`, type: 'slide', parts: drawerParts, params: { distance: boxD } });
       ceiling = lo - BOX_CLEAR;
-      top = bottom - FRONT_GAP;
+      frontTop = bottom - FRONT_GAP;
+      group = undefined;
     });
+  }
+
+  // Doors fill the face below the drawers (all of it when there are none), full overlay.
+  if (p.doors > 0) {
+    if (p.drawers.includes(0)) throw new PluginError('with doors, give every drawer front a height — 0 ("share the rest") leaves no room for the doors');
+    const frontMat = p.frontMaterial ?? p.material;
+    const FT = need(frontMat, 'front material').thickness;
+    const dh = frontTop - kH;
+    if (dh < MIN_DOOR) throw new PluginError(`no room for doors below the drawers (${f(Math.max(0, dh))} left; doors need ${f(MIN_DOOR)})`);
+    const span = W - 2 * SIDE_REVEAL;
+    const half = Math.floor((span - FRONT_GAP) / 2);
+    const leaves: { role: string; name: string; x: number; w: number; side: 'left' | 'right' }[] =
+      p.doors === 2
+        ? [
+            { role: 'door-left', name: 'Left door', x: SIDE_REVEAL, w: half, side: 'left' },
+            { role: 'door-right', name: 'Right door', x: SIDE_REVEAL + half + FRONT_GAP, w: span - FRONT_GAP - half, side: 'right' },
+          ]
+        : [{ role: 'door', name: 'Door', x: SIDE_REVEAL, w: span, side: p.doorHinge ?? 'left' }];
+    for (const leaf of leaves) {
+      panel(leaf.role, leaf.name, 'y', [leaf.x, kH, D], [leaf.w, dh, FT], frontMat, hingeCups(leaf.w, dh, FT, leaf.side));
+      motions.push({ role: leaf.role, name: leaf.name, type: 'hinge', parts: [leaf.role], params: { side: leaf.side, ...(p.doorAngle !== undefined && { angle: p.doorAngle }) } });
+    }
   }
 
   // Shelves share the bay below the drawers (the whole interior when there are none).
@@ -204,7 +267,7 @@ function generate(p: CarcassParams, materials: Materials) {
       joints.push({ role: `kick-${side}`, type: 'butt', parts: [`side-${side}`, 'kick'], params: {} });
     }
   }
-  return { parts, joints };
+  return { parts, groups, joints, motions };
 }
 
 const DIMS = ['width', 'height', 'depth'] as const;
@@ -220,7 +283,7 @@ function faceDrive(p: CarcassParams, f: GenFace): GenFaceDrive | null {
     if (f.axis === 2 && f.max) return { param: 'toeKick.depth', label: 'toe kick depth', sign: -1 };
   }
   const size = [p.width, p.height, p.depth][f.axis]!;
-  const front = f.axis === 2 && f.max && /^drawer-\d+-front$/.test(f.role);
+  const front = f.axis === 2 && f.max && /^(drawer-\d+-front|door|door-left|door-right)$/.test(f.role);
   if (f.max && (f.plane === size || front)) return { param: DIMS[f.axis], label: DIMS[f.axis], sign: 1 };
   if (!f.max && f.plane === 0) return { param: DIMS[f.axis], label: DIMS[f.axis], sign: 1, moveOrigin: true };
   return null;
@@ -239,9 +302,14 @@ registerGenerator<CarcassParams>({
     'filling the face, [384, 0, 0] = a 6" top drawer over two equal ones, [384] = one 6" drawer over an open shelf bay). ' +
     'Face height = height − toeKick.height; reveals are 1/16" above the top front and 1/8" between fronts. When drawers fill the face ' +
     'set shelves to 0. drawerMaterial (box sides/back/sub-front, default material; 1/2" ply is typical), drawerBottomMaterial ' +
-    '(default backMaterial), frontMaterial (default material). Origin = left-back-bottom corner. ' +
+    '(default backMaterial), frontMaterial (drawer fronts and doors, default material). doors (0, 1 or 2: full-overlay slab doors ' +
+    'filling the face below the drawers, or all of it; with doors every drawer height must be given, no 0s; 1/8" between a pair), ' +
+    'doorHinge ("left" | "right", a single door\'s hinge side, default left; a pair hinges on its outer sides), doorAngle (how far ' +
+    'doors open, default 105°). Doors get 35 mm hinge-cup bores on the back. Drawers slide and doors swing on their own (generated ' +
+    'animations): don\'t add motions for them; change doorHinge / doorAngle instead. Origin = left-back-bottom corner. ' +
     'Part roles: side-left, side-right, bottom, top, back, kick, shelf-N, drawer-N-front, drawer-N-bottom, drawer-N-side-left, ' +
-    'drawer-N-side-right, drawer-N-back, drawer-N-sub-front (N from the top).',
+    'drawer-N-side-right, drawer-N-back, drawer-N-sub-front (N from the top), door (one) or door-left / door-right (a pair). ' +
+    'Each drawer\'s parts are generated in their own folder, role drawer-N, named "Drawer N" (id <assembly id>.drawer-N).',
   generate: (p, ctx) => generate(p, ctx.materials),
   faceDrive,
   materialRefs: (p) => {
@@ -250,6 +318,7 @@ registerGenerator<CarcassParams>({
     if (p.drawers.length) {
       refs.push(p.frontMaterial ?? p.material, p.drawerMaterial ?? p.material, p.drawerBottomMaterial ?? p.backMaterial ?? p.material);
     }
+    if (p.doors) refs.push(p.frontMaterial ?? p.material);
     return [...new Set(refs)];
   },
 });

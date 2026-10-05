@@ -1,4 +1,6 @@
+import { clashText, clearance } from '../src/model/clearance.ts';
 import { cutList, cutParts } from '../src/model/cutlist.ts';
+import { movingParts } from '../src/model/doc.ts';
 import { applyOps, type Op } from '../src/model/ops.ts';
 import { Grader, IN } from './grade.ts';
 
@@ -486,6 +488,56 @@ export const CASES: EvalCase[] = [
       g.near(b?.min[2], -30, 'left end', 1 / 8);
       g.near(b?.max[2], 0, 'right end', 1 / 8);
       g.noteResolved('n1');
+    },
+  },
+  {
+    name: 'animation: a drawer over a pair of carcass doors, all opening',
+    start: 'empty',
+    steps: ['Base cabinet 30" wide with one drawer over a pair of doors'],
+    check(g) {
+      const c = g.oneCarcass();
+      if (!c) return;
+      g.check(c.params.doors === 2, `doors: ${c.params.doors}`);
+      g.check(c.params.drawers.length === 1, `drawers: ${JSON.stringify(c.params.drawers)}`);
+      const generated = Object.values(g.doc.motions).filter((m) => m.role);
+      const sides = generated.filter((m) => m.type === 'hinge').map((m) => m.params.side).sort();
+      g.check(JSON.stringify(sides) === '["left","right"]', `door hinges: ${JSON.stringify(sides)}`);
+      g.check(generated.some((m) => m.type === 'slide'), 'the drawer slides');
+      // Nothing doubles up the generated ones.
+      const user = Object.values(g.doc.motions).filter((m) => !m.role);
+      g.check(user.length === 0, `extra animations: ${user.map((m) => `${m.id} ${m.type}`).join(', ')}`);
+      g.check(clearance(g.doc).length === 0, `opening check: ${clearance(g.doc).map((x) => clashText(g.doc, x)).join('; ')}`);
+    },
+  },
+  {
+    name: 'animation: a hand-built frame-and-panel door swings as one',
+    start: 'empty',
+    steps: ['Build a frame-and-panel door 18" wide and 30" tall: 2 1/4" stiles and rails of 3/4" maple around a 1/4" plywood panel, hinged on the right'],
+    check(g) {
+      const motions = Object.values(g.doc.motions);
+      g.check(motions.length === 1, `animations: ${motions.length}`);
+      const m = motions[0];
+      if (!m) return;
+      g.check(m.type === 'hinge' && m.params.side === 'right', `hinge: ${m.type} ${JSON.stringify(m.params)}`);
+      const moving = movingParts(g.doc, m.nodes);
+      const door = g.parts((p) => !p.block);
+      g.check(door.length >= 5, `door parts: ${door.length}`);
+      g.check(door.every((p) => moving.has(p.id)), `doesn't move: ${door.filter((p) => !moving.has(p.id)).map((p) => p.name).join(', ')}`);
+      g.check(m.nodes.length === 1 && !!g.doc.assemblies[m.nodes[0]!], `animates ${m.nodes.join(', ')} rather than the door's folder`);
+    },
+  },
+  {
+    name: 'animation: a door beside a wall opens clear, or the AI says why not',
+    start: 'empty',
+    setup: [block('wall', [-4, 0, -12], [0, 0, 0], [4, 96, 48]), { op: 'update', id: 'wall', patch: { name: 'Wall' } }],
+    steps: ['Base cabinet 18" wide with one door, set right against the wall on its left'],
+    check(g, replies) {
+      const c = g.oneCarcass();
+      if (!c) return;
+      g.near(g.box(c.id)?.min[0], 0, 'cabinet against the wall', 1);
+      const hits = clearance(g.doc);
+      const said = /hit|clear|filler|90/i.test(replies.at(-1) ?? '');
+      g.check(hits.length === 0 || said, `opening check: ${hits.map((x) => clashText(g.doc, x)).join('; ')} (not mentioned)`);
     },
   },
 ];

@@ -2,19 +2,26 @@ import { actionsFor, type Action } from '../edit/actions';
 import { blockSize, setRotationOps, splitEvenOps } from '../edit/blocks';
 import { handleDrives, setDriveOps, type Drive } from '../edit/drives';
 import { handleKind, targetKey, type Target } from '../edit/targets';
+import { clashesOf, clashText } from '../model/clearance';
 import { partMachining } from '../model/cutlist';
 import { DEFAULT_CARCASS } from '../model/defaults';
 import { descendants, parentIndex } from '../model/doc';
 import { generatedOwner, genPartId } from '../model/generate';
+import { motionBasis, motionIndex, motionName, motionOf, motionSummary } from '../model/motion';
 import type { Op } from '../model/ops';
-import type { Assembly, Doc, Grain, Part } from '../model/schema';
+import type { Assembly, Doc, Grain, Motion, Part } from '../model/schema';
 import type { Store } from '../model/store';
 import { variablesOf } from '../model/variables';
 import { boxSize, localBox } from '../model/world';
+import { motions } from '../plugins';
 import type { CarcassParams } from '../plugins/generators/carcass';
+import { towardOf } from '../plugins/motions/hinge';
+import { SIDES, type Side } from '../plugins/motions/sides';
+import { slideDistance, type SlideParams } from '../plugins/motions/slide';
 import { el } from './dom';
 import { icon } from './icons';
 import { handleLabel, targetLabel } from './labels';
+import type { MotionPlayer } from './motionPlayer';
 import type { Selection } from './selection';
 import { toast } from './toast';
 import { fmt, LENGTH_HINT, parse, shop, units } from './units';
@@ -23,9 +30,10 @@ import { fmt, LENGTH_HINT, parse, shop, units } from './units';
  * Left panel, bottom: what's selected and what you can change about it — the cabinet it belongs
  * to (its generator's settings), its material, grain, position and rotation, what's machined on it,
  * the sizes a selected face / edge / point drives, actions (drill, pocket, round over, join two
- * parts…) and a note for the AI. A block gets "What is it?" (its name, which the AI builds from),
- * its size and placement instead. Every change is an op through the store; direct edits wait while
- * an AI proposal is pending.
+ * parts…), how it opens (its animation, with play and an open-amount slider) and a note for the AI.
+ * A block gets "What is it?" (its name, which the AI builds from), its size and placement instead.
+ * Every change is an op through the store; direct edits wait while an AI proposal is pending.
+ * Playing and the slider are a view (ui/motionPlayer.ts), so they work any time.
  */
 
 const STYLE = `
@@ -65,6 +73,10 @@ const STYLE = `
 .insp .what { display: block; width: 100%; }
 .insp .turn { display: flex; gap: 4px; margin-top: 4px; }
 .insp .note-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; }
+.insp .play { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.insp .play input[type=range] { flex: 1; min-width: 0; accent-color: var(--fg-2); }
+.insp .play .btn.open { min-width: 76px; }
+.insp .warn { color: var(--warn); }
 `;
 
 export interface InspectorOptions {
@@ -80,6 +92,31 @@ export interface InspectorOptions {
   onClear(): void;
   /** The split tool and copy-alongside, for a selected block's buttons. */
   blockTools?: { split(): void; duplicate(): void };
+  /** How far things are open: the Animation section's play button and slider. */
+  player?: MotionPlayer;
+}
+
+const HINGE_SIDES: [Side, string][] = [
+  ['left', 'Left'],
+  ['right', 'Right'],
+  ['top', 'Top'],
+  ['bottom', 'Bottom'],
+  ['back', 'Back'],
+  ['front', 'Front'],
+];
+const SLIDE_WAYS: [Side, string][] = [
+  ['front', 'Out (front)'],
+  ['back', 'In (back)'],
+  ['left', 'Left'],
+  ['right', 'Right'],
+  ['top', 'Up'],
+  ['bottom', 'Down'],
+];
+
+/** The nodes an animation added for this selection would move: a folder picked whole, else the whole parts picked. */
+function animationNodes(doc: Doc, targets: readonly Target[], whole: Assembly | null): string[] | null {
+  if (targets.some((t) => t.handle || doc.parts[t.node]?.block)) return null;
+  return whole ? [whole.id] : targets.map((t) => t.node);
 }
 
 const GRAINS: [Grain, string][] = [
@@ -351,9 +388,130 @@ export function mountInspector(o: InspectorOptions): { focusNote(): void } {
           ]
         : []),
       row('Shelves', shelves),
+      row('Doors', selectField(k('doors'), [['0', 'None'], ['1', 'One'], ['2', 'A pair']], String(p.doors ?? 0), (v) => set({ doors: Number(v) }))),
+      ...(p.doors === 1
+        ? [row('Hinge side', selectField(k('doorHinge'), [['left', 'Left'], ['right', 'Right']], p.doorHinge ?? 'left', (v) => set({ doorHinge: v as 'left' | 'right' })))]
+        : []),
+      ...(p.doors ? [row('Door swing', angleField(p.doorAngle ?? 105, (d) => d > 0 && d <= 180 && set({ doorAngle: d }, 'doorAngle'), k('doorAngle'), 'How far the doors open'))] : []),
       row('Joinery', selectField(k('joinery'), [['dado', 'Dado'], ['butt', 'Butt']], p.joinery, (v) => set({ joinery: v as CarcassParams['joinery'] }))),
       ...(foot ? [el('div', { class: 'foot' }, foot)] : []),
     );
+  }
+
+  // ── Animation (how it opens) ──────────────────────────────────────────────
+  /** Updates the shown play button and slider in place as things open and close (a re-render would drop a slider mid-drag). */
+  let live: (() => void) | null = null;
+  o.player?.subscribe(() => live?.());
+  o.player?.onMove(() => live?.());
+
+  /** ▶ Open / Close and how far open: a view, so they work any time (even with an AI proposal pending). */
+  function playRow(m: Motion, ...extra: HTMLElement[]): HTMLElement {
+    const player = o.player;
+    if (!player) return el('div', { class: 'play' }, ...extra);
+    const label = el('span', {}, 'Open');
+    const btn = el('button', { class: 'btn sm open', title: 'Open or close it (O)' }, icon('play'), label);
+    btn.addEventListener('click', () => player.toggle([m.id]));
+    const slider = el('input', { type: 'range', min: 0, max: 100, step: 1, value: '0', 'aria-label': 'How far open', title: 'How far open — just the view; the model stays closed' });
+    slider.addEventListener('input', () => player.scrub(m.id, Number(slider.value) / 100));
+    // Let go of the slider and the keyboard shortcuts work again.
+    slider.addEventListener('change', () => slider.blur());
+    live = () => {
+      label.textContent = player.isOpen(m.id) ? 'Close' : 'Open';
+      slider.value = String(Math.round(player.amount(m.id) * 100));
+    };
+    live();
+    return el('div', { class: 'play' }, btn, slider, ...extra);
+  }
+
+  /** Whether it opens clear, else what it hits and how far open (and `fix`: what to try). */
+  function clearLines(doc: Doc, m: Motion, fix: string): HTMLElement[] {
+    let clashes;
+    try {
+      clashes = clashesOf(doc, m.id);
+    } catch {
+      return [];
+    }
+    if (!clashes.length) return [el('div', { class: 'foot' }, 'Opens clear.')];
+    return clashes.map((c) => el('div', { class: 'info warn len' }, ...shop(`${clashText(doc, c, fmt)}.${c.with ? '' : ` ${fix}`}`)));
+  }
+
+  function addAnimation(doc: Doc, nodes: string[]): HTMLElement {
+    const parents = parentIndex(doc);
+    if (new Set(nodes.map((id) => parents.get(id) ?? null)).size > 1) {
+      return foldable('Animation', el('div', { class: 'info' }, 'To animate things together, pick things in one folder — or the folder itself, in the list.'));
+    }
+    const presets = motions.all().flatMap((d) => d.presets.map((p, i) => ({ key: `${d.type}:${i}`, type: d.type, label: p.label, params: p.params as Record<string, unknown> })));
+    const pick = selectField('motion:add', [['', 'Choose…'], ...presets.map((p): [string, string] => [p.key, p.label])], '', (v) => {
+      const p = presets.find((x) => x.key === v);
+      if (!p || !editOps([{ op: 'add', entity: { kind: 'motion', nodes, type: p.type, params: { ...p.params } } }])) return;
+      // Show it working; tune it while it's open.
+      const added = motionIndex(store.doc).get(nodes[0]!);
+      if (added) o.player?.toggle([added.id]);
+    });
+    const parent = parents.get(nodes[0]!);
+    const folder = nodes.length === 1 && doc.parts[nodes[0]!] && parent && !doc.assemblies[parent]?.generator && !generatedOwner(doc, nodes[0]!) ? doc.assemblies[parent] : undefined;
+    const hint = folder ? `Moves just this part. To move all of “${folder.name}”, click it in the list first.` : 'Pick how it opens; fine-tune it after.';
+    return foldable('Animation', row('Opens like', pick), el('div', { class: 'foot' }, hint));
+  }
+
+  function motionControls(doc: Doc, m: Motion, nodes: string[]): HTMLElement {
+    const rides = m.nodes.some((id) => nodes.includes(id)) ? [] : [el('div', { class: 'info' }, `Opens with “${motionName(doc, m)}”.`)];
+    if (m.role !== undefined) {
+      const owner = generatedOwner(doc, m.nodes[0]!);
+      const how = m.type === 'hinge' ? 'change it with Doors, Hinge side and Door swing under Cabinet' : 'it comes out as far as its box goes';
+      const fix = m.type === 'hinge' ? 'Try the other hinge side, a filler, or less Door swing.' : 'Move what’s in the way.';
+      return foldable('Animation', ...rides, el('div', { class: 'info len' }, ...shop(`${cap(motionSummary(m))}. It comes with “${owner?.name ?? 'the cabinet'}”: ${how}.`)), ...clearLines(doc, m, fix), playRow(m));
+    }
+    const k = (name: string) => `motion:${m.id}:${name}`;
+    const set = (patch: Record<string, unknown>, key?: string) => editOps([{ op: 'update', id: m.id, patch }], key && k(key));
+    const params = (patch: Record<string, unknown>, key?: string) => set({ params: patch }, key);
+    const rows: HTMLElement[] = [
+      row('Kind', selectField(k('type'), [['hinge', 'Hinged (swings)'], ['slide', 'Sliding']], m.type, (v) => set({ type: v, params: v === 'hinge' ? { side: 'left' } : {} }))),
+    ];
+    if (m.type === 'hinge') {
+      const p = m.params as { side: Side; toward?: Side; angle: number };
+      const across = HINGE_SIDES.filter(([s]) => SIDES[s].axis !== SIDES[p.side].axis);
+      rows.push(
+        row(
+          'Hinges on',
+          selectField(k('side'), HINGE_SIDES, p.side, (v) => params({ side: v, ...(p.toward && SIDES[p.toward].axis === SIDES[v as Side].axis && { toward: null }) })),
+        ),
+        row('Swings out', selectField(k('toward'), across, towardOf(p), (v) => params({ toward: v }))),
+        row('Opens to', angleField(p.angle, (d) => d > 0 && d <= 180 && params({ angle: d }, 'angle'), k('angle'), 'How far it opens')),
+      );
+    } else {
+      const p = m.params as unknown as SlideParams;
+      let auto = '';
+      try {
+        auto = fmt(slideDistance({ ...p, distance: undefined }, motionBasis(doc, m)));
+      } catch {
+        // doesn't build: plain "auto"
+      }
+      const distance = lengthField(p.distance ?? null, (u) => u > 0 && params({ distance: u }, 'distance'), k('distance'), auto ? `auto · ${auto}` : 'auto');
+      distance.title = `How far it slides. Leave it empty to go 90% of its depth. ${LENGTH_HINT}`;
+      distance.addEventListener('change', () => distance.value.trim() === '' && p.distance !== undefined && params({ distance: null }));
+      rows.push(row('Moves', selectField(k('toward'), SLIDE_WAYS, p.toward, (v) => params({ toward: v }))), row('Distance', distance));
+    }
+    const secs = el('input', { type: 'number', min: 0.1, max: 10, step: 0.1, value: String(m.params.seconds ?? ''), 'data-key': k('seconds'), style: 'width:72px', title: 'Seconds to open all the way' });
+    secs.addEventListener('input', () => {
+      const n = Number(secs.value);
+      if (secs.value.trim() !== '' && n >= 0.1 && n <= 10) params({ seconds: n }, 'seconds');
+    });
+    rows.push(row('Time (s)', secs));
+    const remove = el('button', { class: 'btn ghost icon sm', title: 'Remove this animation' }, icon('trash'));
+    remove.addEventListener('click', () => editOps([{ op: 'delete', id: m.id }]));
+    const fix = m.type === 'hinge' ? 'Try the other hinge side, a filler, or opening it less.' : 'Try a shorter distance, or move what’s in the way.';
+    return foldable('Animation', ...rides, ...rows, ...clearLines(doc, m, fix), playRow(m, remove));
+  }
+
+  function animationSection(doc: Doc, targets: readonly Target[], whole: Assembly | null): HTMLElement | null {
+    // A whole cabinet: its doors and drawers come with their own (O opens them).
+    if (whole?.generator) return null;
+    const nodes = animationNodes(doc, targets, whole);
+    if (!nodes?.length) return null;
+    const found = [...new Set(nodes.map((id) => motionOf(doc, id)))];
+    if (found.length > 1) return foldable('Animation', el('div', { class: 'info' }, 'These open separately: pick one to change how it opens (O opens them all).'));
+    return found[0] ? motionControls(doc, found[0], nodes) : addAnimation(doc, nodes);
   }
 
   // ── One whole part ────────────────────────────────────────────────────────
@@ -541,6 +699,8 @@ export function mountInspector(o: InspectorOptions): { focusNote(): void } {
     }
     const cabinet = cabinetOf(doc, targets, whole);
     if (cabinet) out.push(cabinetSection(doc, cabinet));
+    const animation = animationSection(doc, targets, whole);
+    if (animation) out.push(animation);
     if (rest.length) out.push(section('Actions', ...rest.map(actionRow)));
     out.push(noteSection);
     return out;
@@ -553,6 +713,7 @@ export function mountInspector(o: InspectorOptions): { focusNote(): void } {
     const text = focused instanceof HTMLInputElement || focused instanceof HTMLTextAreaElement ? focused : null;
     const caret: [number | null, number | null] | null = text && text.type !== 'number' ? [text.selectionStart, text.selectionEnd] : null;
     const scroll = body.scrollTop;
+    live = null;
     body.replaceChildren(...content(o.shown()));
     body.scrollTop = scroll;
     if (!key) return;

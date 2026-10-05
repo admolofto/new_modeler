@@ -1,5 +1,5 @@
 import type { V3 } from '../geometry/types';
-import { descendants, parentIndex } from '../model/doc';
+import { descendants, movingParts, parentIndex } from '../model/doc';
 import { generatedOwner } from '../model/generate';
 import type { Doc } from '../model/schema';
 import { apply, frameBoxes, nodeAffine, union, worldBoxes, type Affine, type Box3 } from '../model/world';
@@ -36,16 +36,6 @@ export function gizmoNodes(doc: Doc, targets: readonly Target[]): string[] | nul
 /** Selection targets for nodes: a part itself, or all of an assembly's parts (so it's picked whole). */
 export function targetsOf(doc: Doc, ids: readonly string[]): Target[] {
   return ids.flatMap((id) => (doc.parts[id] ? [{ node: id }] : descendants(doc, id).filter((c) => doc.parts[c]).map((node) => ({ node }))));
-}
-
-/** Every part that moves with these nodes. */
-export function movingParts(doc: Doc, ids: readonly string[]): Set<string> {
-  const out = new Set<string>();
-  for (const id of ids) {
-    if (doc.parts[id]) out.add(id);
-    for (const c of descendants(doc, id)) if (doc.parts[c]) out.add(c);
-  }
-  return out;
 }
 
 export interface GizmoPlace {

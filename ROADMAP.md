@@ -227,10 +227,25 @@ Part = {
   - **AI:** snapshot shows `block: true` and which way its front faces; the prompt says to build the real piece in exactly the block's space (same parent / position / rotation, x / y / z = width / height / depth), delete the block in the same batch and resolve the note, and to keep appliances / walls as renamed blocks. Voice notes work as before — hover a block and talk
   - Eval: `npm run eval -- -t blocks` (a row of blocks → two cabinets + the fridge kept; a turned block → a cabinet facing the same way), **2/2 first try** on Claude Code (2026-09-25, 16–43 s)
 
+## Animations — doors swing, drawers slide
+
+**Goal:** doors, drawers, lids and flaps open in the view; the AI applies a preset instead of inventing motion each time; you can see what an opening door hits.
+
+- **Status: built (2026-10-05); live eval not yet run.** Notes:
+  - **Motions (schema v6):** `doc.motions`, a fourth registry kind (`plugins/motions/`: `hinge`, `slide`). A motion moves `nodes` together — siblings (carcass drawers are six flat generated parts), the first one's frame being the motion's — and `pose(params, basis, t)` works out the move from where the parts sit (`model/motion.ts`: basis memoized per doc, `motionDelta` in the parent frame), so params stay semantic (`side`, `toward`, `angle`, `distance`) and resizing keeps it right. Hinge line = the outer edge on the hinge side at the face that swings out; parts under 5% of the face (pulls, hinge leaves) don't count. Slide distance defaults to 90% of the depth. A node has one motion; a motion inside an animated folder rides on it
+  - Ops: `add {kind: "motion"}`, strict `update` (params merge, null resets, a new type starts afresh), `delete`; deleted nodes drop out after every batch. Validation: siblings, a part in it, one per node. Files and saved recipes share one upgrade path (`persistence.ts` `upgradeDoc`): v5 and older regenerate their generators, so old drawers gain their slides and the recipe library keeps loading
+  - **Generated motions:** generators emit `motions` (by part roles) like joints; read-only, rebuilt on regenerate, skipped when one of their parts was deleted (a sink base's false front stays put). Carcass drawers slide full extension; new carcass `doors` (0 / 1 / 2, `doorHinge`, `doorAngle`): full-overlay slabs below the drawers with 35 mm hinge-cup bores (2 to 40", 3 to 60", then 4), hinged on their outer sides; door fronts drive depth
+  - **Open is a view** (`ui/motionPlayer.ts`): eased, a beat apart, instant under reduced motion; keyed by motion id so undo, AI previews and accept / reject keep it; never saved or seen in the snapshot (the screenshot turn says what's shown open). `sceneSync` poses moved nodes on top of their transforms each frame without rebuilding. While anything is open the gizmo hides and handle drags wait; Block / Split close everything. Dims, pins and block labels stay on the closed model
+  - **UI:** inspector **Animation** section (preset picker; kind, hinge side, swings out, angle or direction, distance, time; ▶ / slider; read-only summary for generated ones; "Opens with …" from inside an animated folder), Cabinet **Doors / Hinge side / Door swing**, toolbar **Open**, **O**
+  - **Opening check** (`model/clearance.ts`): sweeps each motion (5° / 1" steps, refined by bisection) against everything that stays put, then everything open at once; pairs touching when closed don't count. Shown in the Animation section and as a yellow tint while open past the hit; in apply_ops results ("Opening check") and the snapshot (`clashes`)
+  - **AI:** motion entity in the apply_ops schema from the registry (nested discriminated union), results list each motion's hinge line / travel in world terms; prompt `# Animation` section: animate every door / drawer / lid / flap built, the folder not the boards, outer hinges for pairs, carcass `doors` for slab doors
+  - **glTF export** (`render/gltfExport.ts`, toolbar **glTF**): `.glb`, meters, closed, a clip per motion with the easing baked in, plus "Open all"
+  - Eval: `npm run eval -- -t animation` (carcass drawer over doors; a hand-built frame-and-panel door hinged on its folder; a door beside a wall clears or is reported). Not run live yet
+
 ## Phase 5 — Later
 
 - Mobile/touch viewing and markup
-- Export: glTF/OBJ (easy), DXF cut sheets; solid stock laid out on boards (needs board sizes per material)
+- Export: OBJ, DXF cut sheets (glTF with animations is done); solid stock laid out on boards (needs board sizes per material)
 - Component library (reusable drawers, doors, face frames)
 - CAD kernel (e.g. Replicad/OCCT) as a builder plugin **only if** a real part needs it
 
@@ -280,4 +295,5 @@ Part = {
 - **Phase 4 (built)** makes it shop-ready: joints cut real dados / rabbets, a joinery-aware cut list (CSV + print) with sheet / board-foot / cost estimates, a material library, inch ⇄ mm display, dimension lines, and snap-to-align / match-size while dragging.
 - **UI (built):** docked top bar / model list + settings / AI panel, one design system where color means selected, AI or note, true fractions for lengths.
 - **Blockout (built):** sketch placeholder blocks in three clicks (B), move / turn anything with a gizmo at any angle, copy and split runs, then hover and talk — the AI builds each block's real piece in its space.
+- **Animations (built):** hinge / slide presets work out pivots and travel from the parts; carcass drawers and new carcass doors come animated; open things with O, check what they hit, export them to glTF.
 - **No CAD kernel** unless a real part needs one; it would slot in as another builder.

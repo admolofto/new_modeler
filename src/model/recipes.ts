@@ -2,10 +2,12 @@ import { z } from 'zod';
 import { generators, pluginVersions } from '../plugins';
 import { deepEqual, descendants, ModelError, parentIndex } from './doc';
 import { parseFormula, type Expr } from './expr';
-import { generatedOwner, genJointId, genPartId, regenerate } from './generate';
+import { generatedOwner, genJointId, genMotionId, genPartId, regenerate } from './generate';
 import { syncJoints } from './joinery';
+import { motionName } from './motion';
 import { applyOps, type Op } from './ops';
-import { Doc as DocSchema, Id, type Doc, type Material, type Vec3 } from './schema';
+import { upgradeDoc } from './persistence';
+import { Doc as DocSchema, Id, SCHEMA_VERSION, type Doc, type Material, type Vec3 } from './schema';
 import { validateDoc } from './validate';
 import { allBindings } from './variables';
 import { union, worldBoxes } from './world';
@@ -66,6 +68,13 @@ export function parseRecipe(value: unknown): Recipe {
   if (typeof value === 'string') {
     try { value = JSON.parse(value); } catch { throw new ModelError('recipe is not valid JSON'); }
   }
+  // A recipe saved by an older app holds an older doc: upgrade it the way a model file is.
+  if (value && typeof value === 'object' && 'doc' in value) {
+    const saved = value.doc as { version?: unknown } | null;
+    if (saved && typeof saved === 'object' && typeof saved.version === 'number' && saved.version !== SCHEMA_VERSION) {
+      value = { ...value, doc: upgradeDoc(saved) };
+    }
+  }
   const parsed = Recipe.safeParse(value);
   if (!parsed.success) throw new ModelError(`invalid recipe — ${parsed.error.issues.slice(0, 3).map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`);
   const recipe = parsed.data;
@@ -86,8 +95,8 @@ export function parseRecipe(value: unknown): Recipe {
       throw new ModelError(`recipe's generated part "${part.name}" is stale; regenerate its assembly before saving`);
     }
   }
-  if (Object.keys(rebuilt.parts).length !== Object.keys(doc.parts).length || !deepEqual(rebuilt.joints, doc.joints)) {
-    throw new ModelError('recipe generator output does not match its saved parts or joints; regenerate before saving');
+  if (Object.keys(rebuilt.parts).length !== Object.keys(doc.parts).length || !deepEqual(rebuilt.joints, doc.joints) || !deepEqual(rebuilt.motions, doc.motions)) {
+    throw new ModelError('recipe generator output does not match its saved parts, joints or animations; regenerate before saving');
   }
   return recipe;
 }
@@ -113,7 +122,7 @@ export function captureRecipe(source: Doc, options: CaptureRecipeOptions): Recip
   });
   for (const id of roots) {
     const owner = generatedOwner(source, id);
-    if (owner) throw new ModelError(`"${source.parts[id]!.name}" is generated; select the complete "${owner.name}" assembly to preserve its construction`);
+    if (owner) throw new ModelError(`"${(source.parts[id] ?? source.assemblies[id])!.name}" is generated; select the complete "${owner.name}" assembly to preserve its construction`);
   }
   if (new Set(roots.map((id) => parents.get(id))).size > 1) {
     throw new ModelError('selected components have different parents; select their common assembly or group them before saving a recipe');
@@ -121,7 +130,7 @@ export function captureRecipe(source: Doc, options: CaptureRecipeOptions): Recip
   const keep = new Set(roots.flatMap((id) => [id, ...descendants(source, id)]));
   const doc: Doc = {
     version: source.version, pluginVersions: pluginVersions(), roots,
-    parts: {}, assemblies: {}, joints: {}, materials: {}, variables: {}, annotations: {},
+    parts: {}, assemblies: {}, joints: {}, materials: {}, variables: {}, annotations: {}, motions: {},
   };
   for (const id of keep) {
     if (source.parts[id]) doc.parts[id] = structuredClone(source.parts[id]!);
@@ -132,6 +141,11 @@ export function captureRecipe(source: Doc, options: CaptureRecipeOptions): Recip
     const included = joint.parts.filter((id) => keep.has(id));
     if (included.length === 2) doc.joints[joint.id] = structuredClone(joint);
     else if (included.length) warnings.push(`Joint ${joint.id} to an excluded part was omitted; reconnect it in the new model if needed.`);
+  }
+  for (const motion of Object.values(source.motions)) {
+    const included = motion.nodes.filter((id) => keep.has(id));
+    if (included.length === motion.nodes.length) doc.motions[motion.id] = structuredClone(motion);
+    else if (included.length) warnings.push(`The "${motionName(source, motion)}" animation also moves excluded parts, so it was left out; add it again in the new model if needed.`);
   }
   const anchor = (source.parts[roots[0]!] ?? source.assemblies[roots[0]!]!).transform.position;
   for (const id of roots) {
@@ -171,7 +185,7 @@ export function recipeInputs(recipe: Recipe): RecipeInput[] {
   }));
   for (const asm of Object.values(recipe.doc.assemblies)) {
     if (asm.generator?.type !== 'carcass') continue;
-    const paths = ['width', 'height', 'depth', 'toeKick.height', 'toeKick.depth', 'shelves'];
+    const paths = ['width', 'height', 'depth', 'toeKick.height', 'toeKick.depth', 'shelves', 'doors'];
     const drawers = asm.generator.params.drawers;
     if (Array.isArray(drawers)) drawers.forEach((_, index) => paths.push(`drawers.${index}`));
     for (const path of paths) {
@@ -179,7 +193,7 @@ export function recipeInputs(recipe: Recipe): RecipeInput[] {
       const value = path.split('.').reduce<unknown>((obj, key) => obj && typeof obj === 'object' ? (obj as Params)[key] : undefined, asm.generator.params);
       if (typeof value !== 'number') continue;
       inputs.push({ key: `generator:${asm.id}:${path}`, label: path.replace('toeKick.', 'toe kick ').replace(/^drawers\.(\d+)$/, (_, n: string) => `drawer ${Number(n) + 1} front height`),
-        group: asm.name, value, unit: path === 'shelves' ? 'number' : 'length', kind: 'generator', nodeId: asm.id, path });
+        group: asm.name, value, unit: path === 'shelves' || path === 'doors' ? 'number' : 'length', kind: 'generator', nodeId: asm.id, path });
     }
   }
   return inputs;
@@ -262,7 +276,7 @@ export interface RecipeInsertion {
 export function insertRecipe(target: Doc, value: Recipe, options: InsertRecipeOptions = {}): RecipeInsertion {
   const recipe = parseRecipe(value);
   const doc = resizedDoc(recipe, options.inputs ?? {});
-  const used = new Set([target.materials, target.parts, target.assemblies, target.joints, target.annotations, target.variables].flatMap(Object.keys));
+  const used = new Set([target.materials, target.parts, target.assemblies, target.joints, target.annotations, target.variables, target.motions].flatMap(Object.keys));
   let prefix = '';
   for (let n = 1; ; n++) {
     const candidate = `recipe${n}`;
@@ -288,9 +302,17 @@ export function insertRecipe(target: Doc, value: Recipe, options: InsertRecipeOp
     const owner = generatedOwner(doc, part.id);
     ids[part.id] = owner ? genPartId(ids[owner.id]!, part.role!) : `${prefix}_p${i + 1}`;
   });
+  for (const asm of Object.values(doc.assemblies)) {
+    const owner = generatedOwner(doc, asm.id);
+    if (owner) ids[asm.id] = genPartId(ids[owner.id]!, asm.role!);
+  }
   Object.values(doc.joints).forEach((joint, i) => {
     const owner = joint.role === undefined ? undefined : Object.values(doc.assemblies).find((a) => joint.id === genJointId(a.id, joint.role!));
     ids[joint.id] = owner ? genJointId(ids[owner.id]!, joint.role!) : `${prefix}_j${i + 1}`;
+  });
+  Object.values(doc.motions).forEach((motion, i) => {
+    const owner = motion.role === undefined ? undefined : Object.values(doc.assemblies).find((a) => motion.id === genMotionId(a.id, motion.role!));
+    ids[motion.id] = owner ? genMotionId(ids[owner.id]!, motion.role!) : `${prefix}_mo${i + 1}`;
   });
   const ops: Op[] = [];
   for (const material of added) ops.push({ op: 'add', entity: { kind: 'material', ...structuredClone(material), id: ids[material.id]! } });
@@ -317,7 +339,11 @@ export function insertRecipe(target: Doc, value: Recipe, options: InsertRecipeOp
         throw new ModelError(`generator "${generator.type}" needs recipe material-reference support`);
       }
       ops.push({ op: 'add', entity: { kind: 'assembly', ...common, ...(generator && { generator, overrides }) }, parent, index });
-      asm.children.forEach((child, at) => { if (!generatedOwner(doc, child)) copyNode(child, ids[id]!, at); });
+      asm.children.forEach((child, at) => {
+        if (!generatedOwner(doc, child)) copyNode(child, ids[id]!, at);
+        // The user's own things in a generated folder go in the copy's.
+        else doc.assemblies[child]?.children.forEach((c, i) => { if (!generatedOwner(doc, c)) copyNode(c, ids[child]!, i); });
+      });
     }
     if (node.hidden !== undefined) ops.push({ op: 'update', id: ids[id]!, patch: { hidden: node.hidden } });
     if (node.unclickable !== undefined) ops.push({ op: 'update', id: ids[id]!, patch: { unclickable: node.unclickable } });
@@ -326,6 +352,10 @@ export function insertRecipe(target: Doc, value: Recipe, options: InsertRecipeOp
   for (const root of doc.roots) copyNode(root, prefix);
   for (const joint of Object.values(doc.joints)) if (joint.role === undefined) ops.push({ op: 'add', entity: {
     kind: 'joint', id: ids[joint.id]!, type: joint.type, parts: [ids[joint.parts[0]]!, ids[joint.parts[1]]!], params: structuredClone(joint.params),
+  } });
+  for (const motion of Object.values(doc.motions)) if (motion.role === undefined) ops.push({ op: 'add', entity: {
+    kind: 'motion', id: ids[motion.id]!, ...(motion.name && { name: motion.name }), type: motion.type,
+    nodes: motion.nodes.map((id) => ids[id]!), params: structuredClone(motion.params),
   } });
   const result = applyOps(target, ops);
   if (!result.ok) throw new ModelError(result.error);

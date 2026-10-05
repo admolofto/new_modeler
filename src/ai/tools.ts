@@ -1,15 +1,20 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 import { cutList, cutListText } from '../model/cutlist';
-import { applyOps, makeOpSchema, type Op } from '../model/ops';
-import { Id, type Doc } from '../model/schema';
+import { applyOps, makeOpSchema, motionEntity, type Op } from '../model/ops';
+import { Id, type Doc, type Motion } from '../model/schema';
 import { formatInches, parseInches } from '../model/units';
-import { features, generators, shapes } from '../plugins';
+import { features, generators, motions, shapes } from '../plugins';
 import { buildPart } from '../plugins/pipeline';
-import { boxSize, overlaps, union, worldBoxes, type Box3 } from '../model/world';
+import { apply, boxSize, nodeAffine, overlaps, rotate, union, worldBoxes, type Box3 } from '../model/world';
 import { parentIndex } from '../model/doc';
+import { directionText } from '../edit/blocks';
+import { clashText, clearance } from '../model/clearance';
 import { generatedOwner } from '../model/generate';
+import { motionBasis, motionName, motionSummary } from '../model/motion';
 import { placeRecipe, recipeInputs, type Recipe } from '../model/recipes';
+import { hingePoint, towardOf, type HingeParams } from '../plugins/motions/hinge';
+import { cross, normal, type Side } from '../plugins/motions/sides';
 import { treeIssues } from './organization';
 
 /**
@@ -37,11 +42,19 @@ function refUnion(defs: Def[], withId: boolean): z.ZodType {
   return z.discriminatedUnion('type', options as unknown as [z.ZodObject, z.ZodObject]);
 }
 
+/** One motion entity per motion plugin, flat: {kind: "motion", nodes, type, params}. */
+function motionUnion() {
+  const options = motions.all().map((d) => motionEntity(z.literal(d.type), d.schema).describe(d.describe));
+  if (options.length === 1) return options[0]!;
+  return z.discriminatedUnion('type', options as unknown as [ReturnType<typeof motionEntity>, ReturnType<typeof motionEntity>]);
+}
+
 export function aiOpSchema() {
   return makeOpSchema({
     shape: refUnion(shapes.all(), false),
     feature: refUnion(features.all(), true),
     generator: refUnion(generators.all(), false),
+    motion: motionUnion(),
   });
 }
 
@@ -72,7 +85,7 @@ export function toolDefs(): Tool[] {
         'may instead be written as an inch string like "34 1/2in" or "3/4in". The result lists what changed, world bounds of new/changed ' +
         'nodes, and warnings such as parts that interpenetrate — fix real problems with another call. Nothing is final until the ' +
         'user accepts the preview.\n\n' +
-        'Ops: add {entity, parent?, index?} (entity.kind part | block | assembly | joint | material; a block is a placeholder box: {kind: "block", name?, transform?, size: [x, y, z]}); update {id, patch} (part: name, material, ' +
+        'Ops: add {entity, parent?, index?} (entity.kind part | block | assembly | joint | material | motion; a block is a placeholder box: {kind: "block", name?, transform?, size: [x, y, z]}); update {id, patch} (part: name, material, ' +
         'grain, shape: {params} merged into the current params — a block takes only name and shape params; assembly: name, params merged into its generator params, which ' +
         'regenerates it; material: name, thickness, color, stock; joint: type, parts, params); delete {id} (assemblies take their ' +
         'children with them; deleting a generated part is remembered as an override); move {id, to? | by?, rotation?, parent?, index?, keepWorld?} ' +
@@ -84,7 +97,9 @@ export function toolDefs(): Tool[] {
         'removeFeature {part, feature: id}; bind {node, path, expr} binds a part / assembly field to a formula over variables ' +
         '(expr null unbinds; the value stays). Variables: add {entity: {kind: "variable", id, name, group, unit?, value}}; ' +
         'update {id, patch: {value | name | group}}; delete {id} (unbinds what used it). ' +
-        'Notes: update {id: "n1", patch: {resolved: true}} marks a user note addressed.',
+        'Notes: update {id: "n1", patch: {resolved: true}} marks a user note addressed. ' +
+        'Animations (how doors, drawers and lids open): add {entity: {kind: "motion", nodes: [what moves together: siblings, e.g. a door\'s folder], type, params, name?}}; ' +
+        'update {id, patch: {params (merged; null resets one), type?, nodes?, name?}}; delete {id}. Generated ones (carcass drawers and doors) are read-only.',
       input_schema: jsonSchema(z.object({ ops: z.array(aiOpSchema()).min(1) })),
     },
     {
@@ -187,6 +202,7 @@ function nodeIds(d: Doc): Set<string> {
     ...Object.keys(d.joints),
     ...Object.keys(d.annotations),
     ...Object.keys(d.variables),
+    ...Object.keys(d.motions),
   ]);
 }
 
@@ -197,7 +213,29 @@ function describeNode(d: Doc, id: string): string {
   if (v) return `variable ${id} (${v.group} › ${v.name})`;
   const j = d.joints[id];
   if (j) return `${id} (${j.type} joint)`;
+  const m = d.motions[id];
+  if (m) return `${id} (animation of "${motionName(d, m)}")`;
   return d.annotations[id] ? `${id} (note)` : id;
+}
+
+/** How a motion moves, worked out from its parts: its hinge line or its travel, in world terms. */
+function motionDetail(d: Doc, m: Motion): string {
+  const head = `${m.id} "${motionName(d, m)}": ${motionSummary(m)}`;
+  try {
+    const basis = motionBasis(d, m);
+    const frame = nodeAffine(d, m.nodes[0]!);
+    if (m.type === 'hinge') {
+      const p = m.params as unknown as HingeParams;
+      const toward = towardOf(p);
+      const at = apply(frame, hingePoint(basis, p.side, toward)).map(Math.round);
+      return `${head} — hinge line along ${directionText(rotate(frame.m, cross(normal(toward), normal(p.side))))} through world [${at.join(', ')}]`;
+    }
+    const reach = motions.get(m.type).reach(m.params, basis);
+    const way = directionText(rotate(frame.m, normal(m.params.toward as Side)));
+    return `${head} — travels ${formatInches(reach.value)} toward world ${way}`;
+  } catch (e) {
+    return `${head} — can't move: ${(e as Error).message}`;
+  }
 }
 
 function applyTool(state: ToolState, input: unknown): ToolOutcome {
@@ -221,8 +259,9 @@ function applyTool(state: ToolState, input: unknown): ToolOutcome {
 
   const prevIds = nodeIds(before);
   const nextIds = nodeIds(after);
-  const created = [...nextIds].filter((id) => !prevIds.has(id) && !after.joints[id]);
-  const removed = [...prevIds].filter((id) => !nextIds.has(id) && !before.joints[id]);
+  // Generated joints and animations follow their generator; they aren't listed one by one.
+  const created = [...nextIds].filter((id) => !prevIds.has(id) && !after.joints[id] && after.motions[id]?.role === undefined);
+  const removed = [...prevIds].filter((id) => !nextIds.has(id) && !before.joints[id] && before.motions[id]?.role === undefined);
   const changedParts = Object.keys(after.parts).filter(
     (id) => before.parts[id] && JSON.stringify(before.parts[id]) !== JSON.stringify(after.parts[id]),
   );
@@ -234,7 +273,7 @@ function applyTool(state: ToolState, input: unknown): ToolOutcome {
   const generated = new Map<string, string[]>();
   const listed: string[] = [];
   for (const id of created) {
-    const role = after.parts[id]?.role;
+    const role = (after.parts[id] ?? after.assemblies[id])?.role;
     if (role) generated.set(id.slice(0, -role.length - 1), [...(generated.get(id.slice(0, -role.length - 1)) ?? []), role]);
     else listed.push(describeNode(after, id));
   }
@@ -244,7 +283,7 @@ function applyTool(state: ToolState, input: unknown): ToolOutcome {
   if (changedParts.length) lines.push(`Changed parts: ${changedParts.length > 12 ? `${changedParts.length} parts` : changedParts.join(', ')}`);
   const oldParents = parentIndex(before);
   const treeChanges = [...parentIndex(after)].filter(([id, parent]) => !oldParents.has(id) || oldParents.get(id) !== parent);
-  if (treeChanges.length) lines.push('Tree placement:', ...treeChanges.filter(([id]) => !after.parts[id]?.role).map(([id, parent]) =>
+  if (treeChanges.length) lines.push('Tree placement:', ...treeChanges.filter(([id]) => (after.parts[id] ?? after.assemblies[id])?.role === undefined).map(([id, parent]) =>
     `  ${describeNode(after, id)} under ${parent ? describeNode(after, parent) : 'Model (top level)'}`));
   const vars = Object.values(after.variables);
   const varBits = vars
@@ -268,12 +307,22 @@ function applyTool(state: ToolState, input: unknown): ToolOutcome {
   }
   const clash = overlaps(after, touched, boxes);
   lines.push(...clashLines(after, clash));
+  // Animations made or changed (generated ones too, when a cabinet gains them), and what opening hits.
+  const newMotions = Object.values(after.motions).filter((m) => JSON.stringify(before.motions[m.id]) !== JSON.stringify(m));
+  if (newMotions.length) lines.push('Animations:', ...newMotions.slice(0, 12).map((m) => `  ${motionDetail(after, m)}`));
+  const moved = new Set(newMotions.map((m) => m.id));
+  const opening = clearance(after).filter((c) => moved.has(c.motion) || (c.with !== undefined && moved.has(c.with)) || touched.has(c.part) || touched.has(c.hits));
+  if (opening.length) lines.push('Opening check — fix these unless intended:', ...opening.slice(0, 10).map((c) => `  ${clashText(after, c)}`));
   const issues = treeIssues(before, after);
   if (issues.length) lines.push('Tree check — fix these unless intended:', ...issues.slice(0, 10).map((i) => `  ${i}`));
+  const warnings = [
+    ...(clash.length ? [`${clash.length} overlap warning${clash.length === 1 ? '' : 's'}`] : []),
+    ...(opening.length ? [`${opening.length} opening warning${opening.length === 1 ? '' : 's'}`] : []),
+  ];
   return {
     content: lines.join('\n'),
     isError: false,
-    summary: `✓ ${ops.length} op${ops.length === 1 ? '' : 's'} applied${clash.length ? ` (${clash.length} overlap warning${clash.length === 1 ? '' : 's'})` : ''}`,
+    summary: `✓ ${ops.length} op${ops.length === 1 ? '' : 's'} applied${warnings.length ? ` (${warnings.join(', ')})` : ''}`,
   };
 }
 
@@ -319,7 +368,7 @@ function treeOutline(d: Doc, max = 80): string[] {
     const asm = d.assemblies[id];
     if (!asm) return;
     const generated = asm.children.filter((c) => generatedOwner(d, c)?.id === asm.id);
-    const gen = asm.generator ? ` (${asm.generator.type} generator: ${generated.map((c) => d.parts[c]!.name).join(', ')})` : '';
+    const gen = asm.generator ? ` (${asm.generator.type} generator: ${generated.map((c) => (d.parts[c] ?? d.assemblies[c])!.name).join(', ')})` : '';
     lines.push(`${pad}${asm.name} [${id}]${gen}`);
     for (const c of asm.children) if (!generated.includes(c)) visit(c, depth + 1);
   };

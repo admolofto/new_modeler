@@ -1,5 +1,5 @@
-import { ModelError, nextId, parentIndex } from '../model/doc';
-import { genPartId } from '../model/generate';
+import { descendants, ModelError, nextId, parentIndex } from '../model/doc';
+import { generatedOwner, genPartId } from '../model/generate';
 import { applyOps, blockName, type Op } from '../model/ops';
 import type { Doc } from '../model/schema';
 
@@ -7,7 +7,7 @@ import type { Doc } from '../model/schema';
  * Copies of blocks, parts and assemblies, as ops that put each copy exactly where its original is
  * (callers move or turn the copies after). New ids, everything else the same: a generated assembly
  * regenerates from its params and replays its overrides (hand edits and features on its parts); user
- * joints between copied parts are copied too. Bindings are dropped — a copy doesn't follow the
+ * joints between copied parts, and animations of copied things, are copied too. Bindings are dropped — a copy doesn't follow the
  * original's variables — and notes stay with the original. Pure.
  */
 export function duplicateOps(doc: Doc, ids: readonly string[]): { ops: Op[]; copies: string[]; doc: Doc } {
@@ -55,7 +55,18 @@ export function duplicateOps(doc: Doc, ids: readonly string[]): { ops: Op[]; cop
       for (const [role, ov] of Object.entries(asm.generator.overrides)) {
         const [from, to] = [genPartId(src, role), genPartId(id, role)];
         if (ov.deleted) {
-          if (scratch.parts[to]) push({ op: 'delete', id: to });
+          if (scratch.parts[to] || scratch.assemblies[to]) push({ op: 'delete', id: to });
+          continue;
+        }
+        const folder = doc.assemblies[from];
+        if (folder && scratch.assemblies[to]) {
+          const patch = {
+            ...(ov.name !== undefined && { name: folder.name }),
+            ...(ov.hidden !== undefined && { hidden: folder.hidden ?? false }),
+            ...(ov.unclickable !== undefined && { unclickable: folder.unclickable ?? false }),
+          };
+          if (Object.keys(patch).length) push({ op: 'update', id: to, patch });
+          if (ov.position || ov.rotation) push({ op: 'move', id: to, to: [...folder.transform.position], rotation: [...folder.transform.rotation] });
           continue;
         }
         const orig = doc.parts[from];
@@ -76,9 +87,17 @@ export function duplicateOps(doc: Doc, ids: readonly string[]): { ops: Op[]; cop
           );
         }
       }
-      for (const c of asm.children) if (doc.parts[c]?.role !== undefined && scratch.parts[genPartId(id, doc.parts[c]!.role!)]) copied.set(c, genPartId(id, doc.parts[c]!.role!));
+      for (const c of descendants(doc, src)) {
+        if (generatedOwner(doc, c)?.id !== src) continue;
+        const to = genPartId(id, (doc.parts[c] ?? doc.assemblies[c])!.role!);
+        if (scratch.parts[to] || scratch.assemblies[to]) copied.set(c, to);
+      }
     }
-    for (const c of asm.children) if (doc.parts[c]?.role === undefined) copy(c, id);
+    for (const c of asm.children) {
+      if (!generatedOwner(doc, c)) copy(c, id);
+      // The user's own things in a generated folder go in the copy's.
+      else for (const g of doc.assemblies[c]?.children ?? []) if (!generatedOwner(doc, g)) copy(g, copied.get(c)!);
+    }
     return id;
   };
 
@@ -92,6 +111,14 @@ export function duplicateOps(doc: Doc, ids: readonly string[]): { ops: Op[]; cop
   const joints = Object.values(doc.joints).filter((j) => j.role === undefined && copied.has(j.parts[0]) && copied.has(j.parts[1]));
   for (const j of joints) {
     push({ op: 'add', entity: { kind: 'joint', id: nextId(scratch, 'j'), type: j.type, parts: [copied.get(j.parts[0])!, copied.get(j.parts[1])!], params: { ...j.params } } });
+  }
+  // Animations of copied things (generated ones came back with their cabinet).
+  for (const m of Object.values(doc.motions)) {
+    if (m.role !== undefined || !m.nodes.every((n) => copied.has(n))) continue;
+    push({
+      op: 'add',
+      entity: { kind: 'motion', id: nextId(scratch, 'mo'), ...(m.name && { name: m.name }), type: m.type, nodes: m.nodes.map((n) => copied.get(n)!), params: structuredClone(m.params) },
+    });
   }
   return { ops, copies, doc: scratch };
 }

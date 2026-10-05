@@ -1,5 +1,6 @@
 import { directionText, frontOf } from '../edit/blocks';
 import { isGround, targetPoint } from '../edit/targets';
+import { clashText, clearance } from '../model/clearance';
 import type { Recipe } from '../model/recipes';
 import type { Doc } from '../model/schema';
 import { worldBoxes } from '../model/world';
@@ -10,8 +11,9 @@ import { hiddenNodes } from '../model/visibility';
  * (with each node's `bind` formulas), plus each node's world bounds (so it can place things
  * relative to what exists without composing transforms itself), and the user's open markup
  * notes with each target's world point. Blocks (placeholders) show as `block: true` with the way
- * their front faces. Generated joints are left out; they follow the generator. The user's saved
- * recipes follow as a short catalog (get_recipe has the rest), so the AI knows they exist.
+ * their front faces. Generated joints and animations are left out; they follow the generator. The
+ * user's own animations follow, then anything that hits something as it opens ("clashes"). The
+ * user's saved recipes follow as a short catalog (get_recipe has the rest), so the AI knows they exist.
  */
 export function modelSnapshot(doc: Doc, recipes: readonly Recipe[] = []): string {
   const boxes = worldBoxes(doc);
@@ -64,6 +66,7 @@ export function modelSnapshot(doc: Doc, recipes: readonly Recipe[] = []): string
       id,
       name: asm.name,
       assembly: true,
+      ...(asm.role && { role: asm.role }),
       ...(asm.hidden && { hidden: true }),
       ...(hidden.has(id) && !asm.hidden && { hiddenByParent: true }),
       ...(asm.unclickable && { unclickable: true }),
@@ -95,11 +98,20 @@ export function modelSnapshot(doc: Doc, recipes: readonly Recipe[] = []): string
       }),
     }));
   const variables = Object.values(doc.variables);
+  const userMotions = Object.values(doc.motions).filter((m) => m.role === undefined);
+  let clashes: string[] = [];
+  try {
+    clashes = clearance(doc).map((c) => clashText(doc, c));
+  } catch {
+    // something doesn't build: the tool results say what
+  }
   return JSON.stringify({
     materials: Object.values(doc.materials).map(({ id, name, thickness, stock }) => ({ id, name, thickness, stock })),
     ...(variables.length && { variables: variables.map(({ id, name, group, unit, value }) => ({ id, group, name, unit, value })) }),
     tree: doc.roots.map(node),
     ...(userJoints.length && { joints: userJoints }),
+    ...(userMotions.length && { motions: userMotions }),
+    ...(clashes.length && { clashes }),
     ...(notes.length && { notes }),
     ...(recipes.length && { recipes: recipeCatalog(recipes) }),
   });

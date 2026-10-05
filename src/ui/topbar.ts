@@ -8,7 +8,7 @@ import { units } from './units';
 
 /**
  * The top bar: file (new / open / save, plus what other modules add: SketchUp import / export), undo / redo, the
- * drawing tools, how the model is shown (dimension lines D, inches ⇄ mm U), the tools other panels add
+ * drawing tools, how the model is shown (dimension lines D, open / close O, inches ⇄ mm U), the tools other panels add
  * (cut list), the keyboard list (?) and the side-panel toggles. View settings are
  * per-browser preferences, not model data.
  */
@@ -89,6 +89,7 @@ const HELP: [string, [string[], string][]][] = [
       [['Right-drag'], 'Pan'],
       [['Wheel'], 'Zoom'],
       [['I'], 'Isolate the folder holding the selection (again: the whole model)'],
+      [['O'], 'Open / close the selection’s doors, drawers and lids (nothing selected: all of them)'],
       [['D'], 'Dimension lines'],
       [['U'], 'Inches ⇄ millimetres'],
       [['L'], 'Cut list'],
@@ -128,6 +129,8 @@ export interface TopBar {
   tools: HTMLElement;
   /** Where drawing tools add their buttons, in the middle of the bar (blocks). */
   draw: HTMLElement;
+  /** Where view toggles add their buttons, beside Dims (open / close). */
+  view: HTMLElement;
   /** Shows a side panel if it's hidden. */
   showPanel(side: 'left' | 'right'): void;
   /** Show dimension lines. */
@@ -247,6 +250,7 @@ export function mountTopBar(o: TopBarOptions): TopBar {
   const file = el('div', { class: 'tools' });
   const tools = el('div', { class: 'tools' });
   const draw = el('div', { class: 'tools' });
+  const view = el('div', { class: 'tools' });
   bar.append(
     el('div', { class: 'side' }, leftBtn, el('span', { class: 'mark' }, 'Modeler'), newBtn, openBtn, saveBtn, file, el('div', { class: 'sep' }), undoBtn, redoBtn),
     el('div', { class: 'mid' }, draw),
@@ -254,6 +258,7 @@ export function mountTopBar(o: TopBarOptions): TopBar {
       'div',
       { class: 'side r' },
       dimsBtn,
+      view,
       el('div', { class: 'seg units', role: 'group', 'aria-label': 'Units' }, inBtn, mmBtn),
       el('div', { class: 'sep' }),
       tools,
@@ -283,6 +288,7 @@ export function mountTopBar(o: TopBarOptions): TopBar {
     file,
     tools,
     draw,
+    view,
     showPanel: (side) => void (panels[side] || togglePanel(side)),
     get dims() {
       return dims;

@@ -8,7 +8,7 @@ import { z } from 'zod';
  * Shape / feature / generator params are opaque records here; the plugin
  * registry validates them (see plugins/registry.ts).
  */
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 7;
 
 export const Id = z.string().regex(/^[A-Za-z0-9_\-.:]+$/, 'ids may only contain letters, digits and _ - . :');
 export const Vec3 = z.tuple([z.int(), z.int(), z.int()]);
@@ -115,6 +115,11 @@ export const Assembly = z.object({
   children: z.array(Id),
   generator: GeneratorRef.optional(),
   bind: Bindings.optional(),
+  /**
+   * Set on folders produced by a generator (a carcass's "Drawer 1"): the role its generated parts
+   * are grouped under, and its overrides key. Directly inside its generating assembly.
+   */
+  role: z.string().optional(),
 });
 
 export const JointType = z.enum(['butt', 'dado', 'rabbet', 'dowel', 'pocketScrew']);
@@ -169,6 +174,23 @@ export const Variable = z.object({
   value: z.number(),
 });
 
+/**
+ * How a door, drawer, lid or flap opens: a motion plugin (`hinge`, `slide`; plugins/motions) moving
+ * `nodes` together. They're siblings (parts or folders under one parent); the first one's frame is
+ * the motion's frame (front = +Z). Where it pivots and how far it goes are worked out from the parts
+ * each time, so resizing keeps it right. How far it's open is a view (ui/motionPlayer.ts), never stored.
+ */
+export const Motion = z.object({
+  id: Id,
+  /** What it's called in lists ("Drawer 1"); default: its first node's name. */
+  name: z.string().optional(),
+  type: z.string().min(1),
+  nodes: z.array(Id).min(1),
+  params: Params,
+  /** Set on motions produced by a generator (read-only, like generated joints). */
+  role: z.string().optional(),
+});
+
 export const Doc = z.object({
   version: z.literal(SCHEMA_VERSION),
   /** Plugin versions at save time; drives per-plugin param migrations on load. */
@@ -179,6 +201,7 @@ export const Doc = z.object({
   joints: z.record(z.string(), Joint),
   annotations: z.record(z.string(), Annotation),
   variables: z.record(z.string(), Variable),
+  motions: z.record(z.string(), Motion),
   /** Top-level node ids, in order. */
   roots: z.array(Id),
 });
@@ -200,6 +223,7 @@ export type Joint = z.infer<typeof Joint>;
 export type AnnotationTarget = z.infer<typeof AnnotationTarget>;
 export type Annotation = z.infer<typeof Annotation>;
 export type Variable = z.infer<typeof Variable>;
+export type Motion = z.infer<typeof Motion>;
 export type Bindings = z.infer<typeof Bindings>;
 export type Doc = z.infer<typeof Doc>;
 

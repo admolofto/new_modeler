@@ -137,6 +137,8 @@ export function mountChatPanel(
   setPreview: (p: Preview | null) => void,
   capture: () => ImageAttachment,
   onRecipePrepared?: (doc: Doc, ids: string[]) => void,
+  /** What the picture of the view shows that the model doesn't (doors drawn open), or null. */
+  viewNote?: () => string | null,
 ): ChatPanel {
   parent.append(el('style', {}, STYLE));
   let engine: Engine = loadEngine() ?? 'claude-code';
@@ -445,7 +447,7 @@ export function mountChatPanel(
       ),
     );
     scroll();
-    const note = proposals.takeNote();
+    const note = [proposals.takeNote(), ...(images.length ? [viewNote?.()] : [])].filter(Boolean).join(' ') || undefined;
 
     const ctrl = new AbortController();
     setRunning(ctrl);

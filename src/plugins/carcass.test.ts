@@ -3,6 +3,7 @@ import { DEFAULT_CARCASS, demoDoc, emptyDoc } from '../model/defaults';
 import { applyOps, type Op } from '../model/ops';
 import type { Doc } from '../model/schema';
 import { inches } from '../model/units';
+import { generators } from './registry';
 
 function ok(doc: Doc, ops: Op[]): Doc {
   const r = applyOps(doc, ops);
@@ -176,6 +177,112 @@ describe('generator overrides', () => {
     const r = applyOps(d, [setParams({ depth: inches(16) })]);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toMatch(/hole f1 .* doesn't fit/);
+  });
+});
+
+describe('carcass drawer folders', () => {
+  const box = ['front', 'bottom', 'side-left', 'side-right', 'back', 'sub-front'];
+
+  it('puts each drawer’s parts in its own folder, where the drawer goes in the case', () => {
+    const d = carcass({ drawers: [inches(6), 0], shelves: 0 });
+    const a1 = d.assemblies.a1!;
+    expect(a1.children).toEqual(['a1.side-left', 'a1.side-right', 'a1.bottom', 'a1.top', 'a1.back', 'a1.kick', 'a1.drawer-1', 'a1.drawer-2']);
+    expect(d.assemblies['a1.drawer-1']).toMatchObject({ name: 'Drawer 1', role: 'drawer-1', transform: { position: [0, 0, 0], rotation: [0, 0, 0] } });
+    expect(d.assemblies['a1.drawer-2']!.children).toEqual(box.map((s) => `a1.drawer-2-${s}`));
+    // Parts keep their ids and assembly-frame positions; the drawer still slides as one.
+    expect(pos(d, 'a1.drawer-1-front')[2]).toBe(inches(24));
+    expect(d.motions['a1.motion.drawer-1']!.nodes).toEqual(box.map((s) => `a1.drawer-1-${s}`));
+    expect(ok(d, [setParams({ drawers: [0] })]).assemblies['a1.drawer-2']).toBeUndefined();
+  });
+
+  it('keeps a renamed or hidden folder, and the user’s things in it, across regenerate', () => {
+    let d = ok(carcass({ drawers: [0, 0], shelves: 0 }), [
+      { op: 'update', id: 'a1.drawer-1', patch: { name: 'Top drawer', hidden: true } },
+      { op: 'add', entity: { kind: 'part', id: 'pull', name: 'Pull', material: 'ply-3-4', shape: { type: 'box', params: { x: 64, y: 64, z: 64 } } }, parent: 'a1.drawer-1' },
+    ]);
+    expect(d.assemblies.a1!.generator!.overrides['drawer-1']).toEqual({ name: 'Top drawer', hidden: true });
+    d = ok(d, [setParams({ width: inches(30) })]);
+    expect(d.assemblies['a1.drawer-1']).toMatchObject({ name: 'Top drawer', hidden: true });
+    expect(d.assemblies['a1.drawer-1']!.children.at(-1)).toBe('pull');
+    // The drawer's gone: the pull moves up to the cabinet rather than vanishing.
+    d = ok(d, [setParams({ drawers: [], shelves: 1 })]);
+    expect(d.assemblies.a1!.children.at(-1)).toBe('pull');
+  });
+
+  it('deletes a whole drawer with its folder, and refuses to move generated folders out', () => {
+    const d = carcass({ drawers: [0, 0], shelves: 0 });
+    const gone = ok(d, [{ op: 'delete', id: 'a1.drawer-2' }]);
+    expect(gone.assemblies['a1.drawer-2']).toBeUndefined();
+    expect(Object.keys(gone.parts).some((id) => id.startsWith('a1.drawer-2-'))).toBe(false);
+    expect(gone.motions['a1.motion.drawer-2']).toBeUndefined();
+    expect(ok(gone, [setParams({ height: inches(30) })]).assemblies['a1.drawer-2']).toBeUndefined();
+    expect(applyOps(d, [{ op: 'move', id: 'a1.drawer-1', parent: null }]).ok).toBe(false);
+    expect(applyOps(d, [{ op: 'move', id: 'a1.drawer-1-front', parent: 'a1' }]).ok).toBe(false);
+  });
+});
+
+describe('carcass doors and animations', () => {
+  const W = inches(36);
+  const D = inches(24);
+  const motionsOf = (d: Doc) => Object.values(d.motions).map((m) => ({ id: m.id, name: m.name, type: m.type, nodes: m.nodes.length, params: m.params }));
+
+  it('slides every drawer out on full-extension slides', () => {
+    const d = carcass({ drawers: [0, 0], shelves: 0 });
+    expect(motionsOf(d)).toEqual([
+      { id: 'a1.motion.drawer-1', name: 'Drawer 1', type: 'slide', nodes: 6, params: { toward: 'front', distance: D - BT - inches(1), seconds: 0.6 } },
+      { id: 'a1.motion.drawer-2', name: 'Drawer 2', type: 'slide', nodes: 6, params: { toward: 'front', distance: D - BT - inches(1), seconds: 0.6 } },
+    ]);
+    expect(d.motions['a1.motion.drawer-1']!.nodes[0]).toBe('a1.drawer-1-front');
+    const more = ok(d, [setParams({ drawers: [0, 0, 0] })]);
+    expect(Object.keys(more.motions)).toHaveLength(3);
+    expect(ok(d, [setParams({ drawers: [] , shelves: 1 })]).motions).toEqual({});
+  });
+
+  it('hangs a pair of doors below the drawers, hinged on their outer sides, with hinge cups', () => {
+    const d = carcass({ drawers: [inches(6)], doors: 2 });
+    const dh = inches(34.5) - inches(1 / 16) - inches(6) - inches(1 / 8) - inches(4);
+    expect(pos(d, 'a1.door-left')).toEqual([inches(1 / 16), inches(4), D]);
+    expect(size(d, 'a1.door-left')).toEqual({ x: 1144, y: dh, z: T });
+    expect(pos(d, 'a1.door-right')).toEqual([inches(1 / 16) + 1144 + inches(1 / 8), inches(4), D]);
+    expect(d.parts['a1.door-left']!.features.map((f) => f.params.at)).toEqual([[57, inches(3.5)], [57, dh - inches(3.5)]]);
+    expect(d.parts['a1.door-right']!.features.map((f) => f.params.at)).toEqual([[1144 - 57, inches(3.5)], [1144 - 57, dh - inches(3.5)]]);
+    expect(motionsOf(d).map((m) => [m.name, m.type, m.params.side])).toEqual([
+      ['Drawer 1', 'slide', undefined],
+      ['Left door', 'hinge', 'left'],
+      ['Right door', 'hinge', 'right'],
+    ]);
+    // Door fronts drive the cabinet's depth like drawer fronts.
+    expect(generators.get('carcass').faceDrive!(d.assemblies.a1!.generator!.params, { role: 'door-right', axis: 2, max: true, plane: D + T })).toMatchObject({ param: 'depth' });
+  });
+
+  it('hinges a single door on the side asked, opening as far as asked', () => {
+    const d = carcass({ doors: 1, doorHinge: 'right', doorAngle: 90, height: inches(84) });
+    expect(d.motions['a1.motion.door']!.params).toEqual({ side: 'right', angle: 90, seconds: 0.8 });
+    const cups = d.parts['a1.door']!.features;
+    expect(cups).toHaveLength(4); // an 80" door
+    expect(cups.every((f) => (f.params.at as number[])[0] === W - inches(1 / 8) - 57)).toBe(true);
+  });
+
+  it('refuses doors that don’t fit', () => {
+    const r = applyOps(emptyDoc(), [{ op: 'add', entity: { kind: 'assembly', generator: { type: 'carcass', params: { ...DEFAULT_CARCASS, drawers: [0], doors: 2 } } } }]);
+    expect(!r.ok && r.error).toMatch(/give every drawer front a height/);
+    expect(applyOps(carcass(), [setParams({ drawers: [inches(28)], doors: 1 })])).toMatchObject({ ok: false, error: expect.stringMatching(/no room for doors/) });
+  });
+
+  it('keeps generated animations read-only, and a false front without its box still', () => {
+    const d = carcass({ drawers: [inches(6), 0], shelves: 0 });
+    expect(applyOps(d, [{ op: 'update', id: 'a1.motion.drawer-1', patch: { params: { distance: 64 } } }])).toMatchObject({ ok: false, error: expect.stringMatching(/comes with "Base"; change its params/) });
+    expect(applyOps(d, [{ op: 'delete', id: 'a1.motion.drawer-1' }])).toMatchObject({ ok: false });
+    // A sink base: take the top drawer's box out and its front stays put.
+    const sink = ok(d, ['bottom', 'side-left', 'side-right', 'back', 'sub-front'].map((s): Op => ({ op: 'delete', id: `a1.drawer-1-${s}` })));
+    expect(sink.parts['a1.drawer-1-front']).toBeDefined();
+    expect(Object.keys(sink.motions)).toEqual(['a1.motion.drawer-2']);
+  });
+
+  it('drops a user animation’s generated parts when they go away', () => {
+    const d = ok(carcass({ shelves: 2 }), [{ op: 'add', entity: { kind: 'motion', nodes: ['a1.shelf-2'], type: 'slide', params: {} } }]);
+    expect(d.motions.mo1!.nodes).toEqual(['a1.shelf-2']);
+    expect(ok(d, [setParams({ shelves: 1 })]).motions).toEqual({});
   });
 });
 

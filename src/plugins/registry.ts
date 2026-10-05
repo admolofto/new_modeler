@@ -2,6 +2,7 @@ import type { z } from 'zod';
 import type { Prism } from '../geometry/prism';
 import type { Geom, Handle, V2, V3 } from '../geometry/types';
 import type { Feature, JointType, Material, Part, Rotation, Shape, Vec3 } from '../model/schema';
+import type { Affine, Box3 } from '../model/world';
 
 /**
  * Plugin contract (ROADMAP "Plugin contract"). Shapes, features and generators
@@ -86,6 +87,14 @@ export interface GenPart {
   rotation?: Rotation;
   shape: Shape;
   features?: Feature[];
+  /** Role of the generated folder it goes in (one of the output's `groups`); none = directly in the assembly. */
+  group?: string;
+}
+
+/** A folder grouping a component's generated parts ("Drawer 1"); it sits at the assembly's origin. */
+export interface GenGroup {
+  role: string;
+  name: string;
 }
 
 export interface GenJoint {
@@ -96,9 +105,21 @@ export interface GenJoint {
   params: { depth?: number };
 }
 
+/** A motion as emitted by a generator: part roles that move together, the first one's frame first. */
+export interface GenMotion {
+  role: string;
+  name: string;
+  type: string;
+  /** Part roles, all in the same group (or none). */
+  parts: string[];
+  params: Record<string, unknown>;
+}
+
 export interface GenOutput {
   parts: GenPart[];
+  groups?: GenGroup[];
   joints: GenJoint[];
+  motions?: GenMotion[];
 }
 
 export interface GeneratorContext {
@@ -137,9 +158,36 @@ export interface GeneratorDef<P = unknown> extends PluginBase<P> {
   materialRefs(params: P): string[];
 }
 
+/**
+ * Where a motion's parts sit in its frame (the first node's local frame, front = +Z): each part's
+ * box and their union, in model units.
+ */
+export interface MotionBasis {
+  box: Box3;
+  parts: Box3[];
+}
+
+/**
+ * How something opens: a hinge, a slide… `pose` is the rigid move at `t` (0 closed … 1 open) in the
+ * motion's frame, worked out from where its parts sit, so the AI and the user only pick a side or a
+ * direction and resizing keeps it right.
+ */
+export interface MotionDef<P = unknown> extends PluginBase<P> {
+  /** Named starting points for the UI ("Door — hinges left"), filled in over the defaults. */
+  presets: { label: string; params: Partial<P> }[];
+  /** A few words for lists, diffs and the AI: "hinges left, opens 105°". */
+  summary(params: P): string;
+  /** Seconds a full open takes. */
+  seconds(params: P): number;
+  /** How far it goes, all the way open: degrees it turns, or a length it travels. */
+  reach(params: P, basis: MotionBasis): { value: number; unit: 'deg' | 'length' };
+  /** Throws PluginError when these parts can't move this way. */
+  pose(params: P, basis: MotionBasis, t: number): Affine;
+}
+
 export class PluginError extends Error {}
 
-type AnyDef = ShapeDef | FeatureDef | GeneratorDef;
+type AnyDef = ShapeDef | FeatureDef | GeneratorDef | MotionDef;
 
 class Registry<D extends AnyDef> {
   private defs = new Map<string, D>();
@@ -178,6 +226,7 @@ class Registry<D extends AnyDef> {
 export const shapes = new Registry<ShapeDef>('shape');
 export const features = new Registry<FeatureDef>('feature');
 export const generators = new Registry<GeneratorDef>('generator');
+export const motions = new Registry<MotionDef>('motion');
 
 /** Registers a typed def (params are validated before any plugin method is called). */
 export function registerShape<P>(def: ShapeDef<P>): void {
@@ -189,11 +238,14 @@ export function registerFeature<P>(def: FeatureDef<P>): void {
 export function registerGenerator<P>(def: GeneratorDef<P>): void {
   generators.register(def as unknown as GeneratorDef);
 }
+export function registerMotion<P>(def: MotionDef<P>): void {
+  motions.register(def as unknown as MotionDef);
+}
 
 /** Current version of every registered plugin (`shape:box`, `feature:hole`…), recorded in saved files. */
 export function pluginVersions(): Record<string, number> {
   const out: Record<string, number> = {};
-  for (const reg of [shapes, features, generators] as Registry<AnyDef>[]) {
+  for (const reg of [shapes, features, generators, motions] as Registry<AnyDef>[]) {
     for (const def of reg.all()) out[`${reg.kind}:${def.type}`] = def.version;
   }
   return out;

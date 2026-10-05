@@ -1,9 +1,11 @@
 import * as THREE from 'three';
 import type { TaggedMesh } from '../geometry/types';
+import { motionDelta } from '../model/motion';
 import type { Doc, Part, Transform } from '../model/schema';
 import { UNITS_PER_INCH } from '../model/units';
 import { buildPart } from '../plugins/pipeline';
 import { unclickableNodes } from '../model/visibility';
+import { affineOf, composeAffine, type Affine } from '../model/world';
 import { PALETTE } from './palette';
 
 /**
@@ -11,14 +13,22 @@ import { PALETTE } from './palette';
  * one Mesh per part. Meshes are rebuilt only when their shape, features or material
  * change; moving a part just updates its transform. Blocks (placeholders) are drawn in
  * clay gray with a lighter front face and an arrow on top pointing to the front.
+ * What motions move is drawn at its open amount (a view: the doc keeps it closed).
  *
  * Pick data: `mesh.userData.partId`, `mesh.userData.handles`, and
  * `geometry.userData.{triTags, tags}` (see pick.ts).
  */
 export interface SceneSync {
   root: THREE.Group;
-  /** `highlight`: part ids drawn with a tint (e.g. what an AI proposal adds or changes). */
-  update(doc: Doc, opts?: { highlight?: ReadonlySet<string> }): void;
+  /**
+   * `highlight`: part ids drawn with a tint (e.g. what an AI proposal adds or changes).
+   * `amount`: how far each motion is open (0 … 1); omitted, everything is drawn closed.
+   */
+  update(doc: Doc, opts?: { highlight?: ReadonlySet<string>; amount?: (motionId: string) => number }): void;
+  /** Redraws what motions move at their open amounts, without rebuilding (every frame something moves). */
+  pose(doc: Doc, amount: (motionId: string) => number): void;
+  /** Parts tinted warn-yellow: an opening door or drawer and what it hits. */
+  setWarn(ids: ReadonlySet<string>): void;
   /** The mesh currently drawn for a part (after the last update). */
   meshOf(partId: string): THREE.Mesh | undefined;
   meshes(): THREE.Mesh[];
@@ -27,6 +37,9 @@ export interface SceneSync {
 }
 
 const DEG = Math.PI / 180;
+
+/** An emissive tint: what an AI proposal changes, or what an opening door or drawer hits. */
+type Tint = 'ai' | 'clash' | null;
 
 function toGeometry(m: TaggedMesh): THREE.BufferGeometry {
   const g = new THREE.BufferGeometry();
@@ -68,6 +81,15 @@ function applyTransform(obj: THREE.Object3D, t: Transform): void {
   obj.rotation.set(t.rotation[0] * DEG, t.rotation[1] * DEG, t.rotation[2] * DEG, 'XYZ');
 }
 
+const basis = new THREE.Matrix4();
+/** Places an object by an affine (rows of a rotation + a translation, model units). */
+function applyAffine(obj: THREE.Object3D, a: Affine): void {
+  const [r0, r1, r2] = a.m;
+  basis.set(r0[0], r0[1], r0[2], 0, r1[0], r1[1], r1[2], 0, r2[0], r2[1], r2[2], 0, 0, 0, 0, 1);
+  obj.quaternion.setFromRotationMatrix(basis);
+  obj.position.set(...a.t);
+}
+
 export function createSceneSync(scene: THREE.Scene): SceneSync {
   const root = new THREE.Group();
   root.name = 'model';
@@ -76,13 +98,13 @@ export function createSceneSync(scene: THREE.Scene): SceneSync {
 
   const edgeMaterial = new THREE.LineBasicMaterial({ color: 0x3b2f22, transparent: true, opacity: 0.55 });
   const surfaceMaterials = new Map<string, THREE.MeshStandardMaterial>();
-  const surface = (color: string, highlight = false) => {
-    const key = `${color}${highlight ? ':hi' : ''}`;
+  const surface = (color: string, tint: Tint) => {
+    const key = `${color}:${tint ?? ''}`;
     let m = surfaceMaterials.get(key);
     if (!m) {
       m = new THREE.MeshStandardMaterial({ color, roughness: 0.85, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
-      if (highlight) {
-        m.emissive.set(PALETTE.ai);
+      if (tint) {
+        m.emissive.set(PALETTE[tint]);
         m.emissiveIntensity = 0.5;
       }
       surfaceMaterials.set(key, m);
@@ -93,14 +115,20 @@ export function createSceneSync(scene: THREE.Scene): SceneSync {
   const cache = new Map<string, { key: string; mesh: THREE.Mesh }>();
   const arrowMaterial = new THREE.MeshBasicMaterial({ color: PALETTE.blockMark, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
   /** Blocks: the sides, and the lighter front (geometry group 1). */
-  const materials = (doc: Doc, part: Part, highlight: boolean): THREE.Material | THREE.Material[] =>
-    part.block ? [surface(PALETTE.blockCss, highlight), surface(PALETTE.blockFrontCss, highlight)] : surface((part.material && doc.materials[part.material]?.color) || '#ff00ff', highlight);
+  const materials = (doc: Doc, part: Part, tint: Tint): THREE.Material | THREE.Material[] =>
+    part.block ? [surface(PALETTE.blockCss, tint), surface(PALETTE.blockFrontCss, tint)] : surface((part.material && doc.materials[part.material]?.color) || '#ff00ff', tint);
 
-  const partMesh = (doc: Doc, part: Part, highlight: boolean): THREE.Mesh | null => {
+  /** The doc last drawn, what it tints for an AI proposal, and what hits something as it opens. */
+  let drawn: Doc | null = null;
+  let aiTint: ReadonlySet<string> | undefined;
+  let warn: ReadonlySet<string> = new Set();
+  const tintOf = (id: string): Tint => (warn.has(id) ? 'clash' : aiTint?.has(id) ? 'ai' : null);
+
+  const partMesh = (doc: Doc, part: Part, tint: Tint): THREE.Mesh | null => {
     const key = JSON.stringify([part.shape, part.features, !!part.block]);
     const hit = cache.get(part.id);
     if (hit && hit.key === key) {
-      hit.mesh.material = materials(doc, part, highlight);
+      hit.mesh.material = materials(doc, part, tint);
       return hit.mesh;
     }
     let built;
@@ -113,7 +141,7 @@ export function createSceneSync(scene: THREE.Scene): SceneSync {
     if (hit) dispose(hit.mesh);
     const geometry = toGeometry(built.mesh);
     if (part.block) frontGroups(geometry);
-    const mesh = new THREE.Mesh(geometry, materials(doc, part, highlight));
+    const mesh = new THREE.Mesh(geometry, materials(doc, part, tint));
     mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geometry, 20), edgeMaterial));
     if (part.block) mesh.add(frontArrow(part.shape.params as { x: number; y: number; z: number }, arrowMaterial));
     mesh.userData = { partId: part.id, handles: built.handles };
@@ -128,25 +156,64 @@ export function createSceneSync(scene: THREE.Scene): SceneSync {
 
   const live = new Set<string>();
   let unclickable = new Set<string>();
+  /** Every drawn part and folder, by node id (folders' groups are made afresh on each update). */
+  const objects = new Map<string, THREE.Object3D>();
+
+  const pose = (doc: Doc, amount: (motionId: string) => number) => {
+    for (const m of Object.values(doc.motions)) {
+      const t = amount(m.id);
+      let delta: Affine | null = null;
+      if (t > 0) {
+        try {
+          delta = motionDelta(doc, m, t);
+        } catch (err) {
+          console.error(`can't open ${m.id}`, err);
+        }
+      }
+      for (const id of m.nodes) {
+        const obj = objects.get(id);
+        const node = doc.parts[id] ?? doc.assemblies[id];
+        if (!obj || !node) continue;
+        if (delta) applyAffine(obj, composeAffine(delta, affineOf(node.transform)));
+        else applyTransform(obj, node.transform);
+      }
+    }
+  };
+
   return {
     root,
     meshOf: (id) => (live.has(id) ? cache.get(id)?.mesh : undefined),
     meshes: () => [...live].map((id) => cache.get(id)!.mesh),
     pickable: () => [...live].filter((id) => !unclickable.has(id)).map((id) => cache.get(id)!.mesh),
+    pose,
+    setWarn(ids) {
+      if (ids.size === warn.size && [...ids].every((id) => warn.has(id))) return;
+      warn = new Set(ids);
+      if (!drawn) return;
+      for (const id of live) {
+        const part = drawn.parts[id];
+        const mesh = cache.get(id)?.mesh;
+        if (part && mesh) mesh.material = materials(drawn, part, tintOf(id));
+      }
+    },
     update(doc, opts) {
       root.clear();
       live.clear();
+      objects.clear();
+      drawn = doc;
+      aiTint = opts?.highlight;
       unclickable = unclickableNodes(doc);
       const addNode = (id: string, parent: THREE.Object3D) => {
         if ((doc.parts[id] ?? doc.assemblies[id])?.hidden) return;
         const part = doc.parts[id];
         if (part) {
-          const mesh = partMesh(doc, part, opts?.highlight?.has(id) ?? false);
+          const mesh = partMesh(doc, part, tintOf(id));
           if (!mesh) return;
           mesh.name = part.name;
           applyTransform(mesh, part.transform);
           parent.add(mesh);
           live.add(id);
+          objects.set(id, mesh);
           return;
         }
         const asm = doc.assemblies[id];
@@ -156,9 +223,11 @@ export function createSceneSync(scene: THREE.Scene): SceneSync {
         group.userData = { assemblyId: id };
         applyTransform(group, asm.transform);
         parent.add(group);
+        objects.set(id, group);
         for (const c of asm.children) addNode(c, group);
       };
       for (const id of doc.roots) addNode(id, root);
+      if (opts?.amount) pose(doc, opts.amount);
       // Hidden parts keep their meshes, so showing them again (or leaving an isolated folder) is quick.
       for (const [id, entry] of cache) {
         if (!doc.parts[id]) {

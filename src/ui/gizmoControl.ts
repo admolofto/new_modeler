@@ -37,6 +37,8 @@ export interface GizmoControlOptions {
   editBlocked(): string | null;
   /** A drawing tool has the pointer: no gizmo. */
   toolActive(): boolean;
+  /** Something is drawn open (doors, drawers): no gizmo — it works on the closed model. */
+  posed?(): boolean;
   setDragPreview(doc: Doc | null): void;
   setSnapNode(id: string | null): void;
   onStatus(msg: string, error?: boolean): void;
@@ -106,7 +108,7 @@ export function attachGizmo(o: GizmoControlOptions): GizmoControl {
   };
 
   /** The nodes the gizmo acts on now, or null (hidden). */
-  const nodes = (doc: Doc) => (o.toolActive() || o.editBlocked() ? null : gizmoNodes(doc, selection.targets));
+  const nodes = (doc: Doc) => (o.toolActive() || o.editBlocked() || o.posed?.() ? null : gizmoNodes(doc, selection.targets));
 
   function sync() {
     const doc = o.shown();

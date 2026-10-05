@@ -39,6 +39,28 @@ has its own library, and clearing site data removes it. Thumbnails show approxim
 part bounds. Cloud sync, portable recipe files, and revision management are not yet
 included.
 
+## Animations
+
+- Doors, drawers, lids and flaps open in the view. Select one and pick **Opens like** under
+  **Animation** in its settings: Door (hinges left / right), Flip-up, Drop-front, Lid,
+  Drawer / pull-out, Slides left / right, Lifts up. Then fine-tune the hinge side, the
+  face that swings out, the angle, the slide direction and distance (empty = 90% of its
+  depth) and the time. The pivot and travel are worked out from the parts, so resizing
+  keeps them right. To move several parts as one (a door's panel, rails and pull), click
+  their folder in the model list first.
+- **▶ / the slider** in that section, **Open** in the toolbar, or **O** (the selection,
+  else everything) open and close things. Open is a view: it isn't saved or undone, and
+  the model stays closed. While anything is open the gizmo and face dragging are off;
+  the settings still work, so you can change the angle and watch it.
+- Generated cabinets come animated: drawers slide out on full-extension slides, and
+  **Doors** (one or a pair, under **Cabinet**) are full-overlay slabs with 35 mm
+  hinge-cup bores that swing out. **Hinge side** and **Door swing** set how.
+- Opening check: the Animation section says what a door or drawer hits as it opens
+  (`Door hits “Wall” at 91°`) and tints both yellow while it's open that far. The AI
+  gets the same check, and adds an animation to every door, drawer, lid and flap it builds.
+- **glTF** in the toolbar downloads `model.glb` (meters, Y up, closed) with an
+  "Open — …" clip per animation plus "Open all", for Blender, 3D viewers or a web page.
+
 ## SketchUp
 
 Exchange uses COLLADA (.dae), which SketchUp reads and writes natively.

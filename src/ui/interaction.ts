@@ -56,6 +56,8 @@ export interface InteractionOptions {
   ignorePins?(): boolean;
   /** A drawing tool has the pointer (the block tool): stay out of its way. */
   toolActive?(): boolean;
+  /** Something is drawn open (doors, drawers): drags would edit the closed model, so they wait. */
+  posed?(): boolean;
   /** The move / turn gizmo: gets first go at every press. */
   gizmo?: GizmoControl;
 }
@@ -184,7 +186,7 @@ export function attachInteraction(o: InteractionOptions): { cancelDrag(): boolea
     return { target: r ? { node: r.partId, handle: r.tag, at } : { node: mesh.userData.partId as string, at }, mesh, world: hit.point };
   }
 
-  const draggable = (t: Target) => !o.editBlocked() && !!handleDrives(o.store.doc, t)?.constraint;
+  const draggable = (t: Target) => !o.editBlocked() && !o.posed?.() && !!handleDrives(o.store.doc, t)?.constraint;
   /** What a press on a pick would drag: a selected handle, or a face of a selected block (it pushes and pulls). */
   const dragTarget = (p: Picked): Target | null => {
     const { node } = p.target;
@@ -303,6 +305,8 @@ export function attachInteraction(o: InteractionOptions): { cancelDrag(): boolea
       const hd = handleDrives(o.store.doc, t);
       if (!hd?.constraint) return;
       if (blocked) return o.onStatus(blocked, true);
+      // Drawn open: the handles aren't where the model has them (clicks still select).
+      if (o.posed?.()) return;
       // Take the gesture from the orbit controls.
       e.stopPropagation();
       e.preventDefault();

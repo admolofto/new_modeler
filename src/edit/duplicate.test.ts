@@ -61,6 +61,21 @@ describe('duplicating', () => {
     expect(next.assemblies[dup.copies[0]!]!.children).toHaveLength(2);
     expect(Object.values(next.joints)).toHaveLength(2);
   });
+
+  it('copies animations of copied things; a copied cabinet animates on its own', () => {
+    const d = ok(emptyDoc(), [
+      { op: 'add', entity: { kind: 'assembly', id: 'door', name: 'Door' } },
+      { op: 'add', parent: 'door', entity: { kind: 'part', id: 'slab', name: 'Slab', material: 'ply-3-4', shape: { type: 'box', params: { x: inches(18), y: inches(30), z: 46 } } } },
+      { op: 'add', entity: { kind: 'motion', name: 'Pantry door', nodes: ['door'], type: 'hinge', params: { side: 'right' } } },
+      { op: 'add', entity: { kind: 'assembly', id: 'a1', name: 'Base', transform: { position: [inches(40), 0, 0] }, generator: { type: 'carcass', params: { width: inches(30), height: inches(34.5), depth: inches(24), material: 'ply-3-4', drawers: [0, 0], shelves: 0 } } } },
+    ]);
+    const next = ok(d, duplicateOps(d, ['door', 'a1']).ops);
+    const copy = Object.values(next.motions).filter((m) => m.role === undefined).at(-1)!;
+    expect(copy).toMatchObject({ name: 'Pantry door', type: 'hinge', params: { side: 'right' } });
+    expect(next.assemblies[copy.nodes[0]!]!.name).toBe('Door');
+    expect(copy.nodes).not.toEqual(['door']);
+    expect(Object.values(next.motions).filter((m) => m.role !== undefined)).toHaveLength(4);
+  });
 });
 
 describe('what the gizmo moves', () => {

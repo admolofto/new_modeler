@@ -1,6 +1,8 @@
 import './plugins';
 import { dimensionLines, type DimLine } from './edit/dimensions';
 import { handleKind, resolveTarget } from './edit/targets';
+import { clearance } from './model/clearance';
+import { motionName } from './model/motion';
 import { demoDoc } from './model/defaults';
 import type { Doc } from './model/schema';
 import { createStore } from './model/store';
@@ -23,6 +25,8 @@ import { icon } from './ui/icons';
 import { mountInspector } from './ui/inspector';
 import { attachInteraction } from './ui/interaction';
 import { mountIsolation } from './ui/isolation';
+import { mountMotionControls } from './ui/motionControls';
+import { createMotionPlayer } from './ui/motionPlayer';
 import { mountNotes } from './ui/notes';
 import { mountOutline } from './ui/outline';
 import { createProposals } from './ui/proposals';
@@ -34,6 +38,7 @@ import { loadLocal, saveLocalSoon } from './ui/storage';
 import { mountTheme } from './ui/theme';
 import { mountToasts, toast } from './ui/toast';
 import { mountSketchUp } from './ui/sketchup';
+import { mountGltfExport } from './ui/gltf';
 import { mountTopBar } from './ui/topbar';
 import { fmt, units } from './ui/units';
 import { mountVoicePanel } from './ui/voicePanel';
@@ -77,6 +82,17 @@ const modelShown = () => dragPreview ?? aiPreview?.doc ?? store.doc;
 const view = (doc: Doc) => isolateView(doc, isolation.id);
 const shown = () => view(modelShown());
 const editBlocked = () => (proposals.pending ? 'Accept or reject the AI’s proposed change before editing the model directly.' : null);
+/** How far doors, drawers and lids are open: a view on top of the model. */
+const player = createMotionPlayer({ viewport, doc: modelShown });
+/** What hits something at how far things are open now: the mover and what it hits, tinted warn. */
+function clashTint(): Set<string> {
+  const ids = new Set<string>();
+  if (!player.anyOpen) return ids;
+  for (const c of clearance(modelShown())) {
+    if (player.amount(c.motion) >= c.at && (!c.with || player.amount(c.with) >= c.at)) ids.add(c.part).add(c.hits);
+  }
+  return ids;
+}
 
 /** Highlights for the hovered and selected targets. */
 function overlayItems(doc: Doc, sel: Selection): OverlayItem[] {
@@ -103,7 +119,9 @@ let ready = false; // panels call back into render while they mount
 const render = () => {
   if (!ready) return;
   const doc = shown();
-  sceneSync.update(doc, aiPreview && !dragPreview ? { highlight: aiPreview.highlight } : undefined);
+  player.sync(doc);
+  sceneSync.setWarn(clashTint());
+  sceneSync.update(doc, { ...(aiPreview && !dragPreview && { highlight: aiPreview.highlight }), amount: player.amount });
   const hidden = hiddenNodes(doc);
   selection.prune((id) => !!(doc.parts[id] ?? doc.assemblies[id]) && !hidden.has(id));
   overlay.setPins(pins(doc));
@@ -114,6 +132,7 @@ const render = () => {
   outline.refresh();
   notes.refresh();
   shop.refresh();
+  motionControls.sync();
 };
 
 store.subscribe((doc) => {
@@ -128,6 +147,7 @@ mountSketchUp({
     try { frameNodes(viewport, doc, ids); } catch { /* the outline still lists it */ }
   },
 });
+mountGltfExport({ slot: top.file, store });
 const outline = mountOutline({ parent: left, stage, store, selection, shown, editBlocked, isolation, startBlocks: () => blockTool.toggle(true) });
 const chat = mountChatPanel(
   right,
@@ -140,6 +160,11 @@ const chat = mountChatPanel(
   },
   () => viewport.capture(),
   (doc, ids) => frameNodes(viewport, doc, ids),
+  () => {
+    const doc = modelShown();
+    const open = Object.values(doc.motions).filter((m) => player.amount(m.id) > 0).map((m) => motionName(doc, m));
+    return open.length ? `The picture shows these opened (the model itself keeps them closed): ${open.join(', ')}.` : null;
+  },
 );
 const recipes = mountRecipesPanel({
   store, selection, toolbar: top.tools,
@@ -172,6 +197,7 @@ const gizmoCtl = attachGizmo({
   view,
   editBlocked,
   toolActive: () => blockTool.active || splitTool.active,
+  posed: () => player.anyOpen,
   setDragPreview: (doc) => {
     dragPreview = doc;
     render();
@@ -198,6 +224,7 @@ const interaction = attachInteraction({
   onHover: (t) => voice.session.hover(t),
   ignorePins: () => voice.session.recording,
   toolActive: () => blockTool.active || splitTool.active,
+  posed: () => player.anyOpen,
   gizmo: gizmoCtl,
 });
 const blockTool = attachBlockTool({
@@ -235,12 +262,27 @@ const splitTool = attachSplitTool({
   setSnapNode,
   onStatus: (msg, error) => toast(msg, error),
 });
-// One tool at a time.
-blockTool.subscribe(() => blockTool.active && splitTool.toggle(false));
+// One tool at a time; drawing works on the closed model.
+blockTool.subscribe(() => {
+  if (!blockTool.active) return;
+  splitTool.toggle(false);
+  player.closeAll();
+});
 splitTool.subscribe(() => {
-  if (splitTool.active) blockTool.toggle(false);
+  if (splitTool.active) {
+    blockTool.toggle(false);
+    player.closeAll();
+  }
   gizmoCtl.sync();
 });
+const motionControls = mountMotionControls({ slot: top.view, player, shown: modelShown, selection, toolActive: () => blockTool.active || splitTool.active });
+player.onMove(() => {
+  const doc = shown();
+  sceneSync.pose(doc, player.amount);
+  sceneSync.setWarn(clashTint());
+  overlay.setItems(overlayItems(doc, selection));
+});
+player.subscribe(() => gizmoCtl.sync());
 const blockBtn = el('button', { class: 'btn ghost', title: 'Draw blocks: rough placeholders you then tell the AI about (B)' }, icon('box'), el('span', { class: 't' }, 'Block'));
 blockBtn.addEventListener('click', () => blockTool.toggle());
 top.draw.append(blockBtn);
@@ -259,6 +301,7 @@ mountInspector({
   cancelDrag: interaction.cancelDrag,
   onClear: () => notes.clearActive(),
   blockTools: { split: () => splitTool.toggle(true), duplicate: () => gizmoCtl.duplicate() },
+  player,
 });
 const shop = mountShopPanel(stage, { store, selection, shown: modelShown, toolbar: top.tools });
 const voice = mountVoicePanel(stage, { store, selection, chat, shown, onPins: () => ready && overlay.setPins(pins(shown())) });
@@ -296,4 +339,4 @@ window.addEventListener('keydown', (e) => {
   e.preventDefault();
 });
 
-if (import.meta.env.DEV) Object.assign(window, { __modeler: { store, scene: viewport.scene, sceneSync, selection, proposals, viewport, voice, shop, notes, units, blockTool, splitTool, gizmo: gizmoCtl, isolation } });
+if (import.meta.env.DEV) Object.assign(window, { __modeler: { store, scene: viewport.scene, sceneSync, selection, proposals, viewport, voice, shop, notes, units, blockTool, splitTool, gizmo: gizmoCtl, isolation, player } });

@@ -9,7 +9,9 @@ import goldenV2 from './__golden__/v2-demo-note.json?raw';
 import goldenV3 from './__golden__/v3-doors-vars.json?raw';
 import goldenV4 from './__golden__/v4-joinery.json?raw';
 import goldenV5 from './__golden__/v5-blocks.json?raw';
+import goldenV6 from './__golden__/v6-motions.json?raw';
 import { cutParts } from './cutlist';
+import { SCHEMA_VERSION } from './schema';
 
 describe('persistence', () => {
   it('round-trips a doc with holes, an outline and edge profiles', () => {
@@ -63,7 +65,7 @@ describe('golden files', () => {
     expect(d.assemblies.a1!.generator!.params).toMatchObject({ width: 2304, height: 2208, depth: 1536 });
     expect(d.parts['a1.side-right']!.features[0]).toMatchObject({ type: 'hole', params: { d: 64 } });
     for (const part of Object.values(d.parts)) expect(buildPart(part).mesh.indices.length).toBeGreaterThan(0);
-    expect(d.version).toBe(5);
+    expect(d.version).toBe(SCHEMA_VERSION);
     expect(d.annotations).toEqual({});
     expect(d.variables).toEqual({});
   });
@@ -72,7 +74,7 @@ describe('golden files', () => {
     const d = deserialize(goldenV2);
     expect(d.annotations.n1).toMatchObject({ note: 'Top should overhang 1 1/2" at the front', resolved: false });
     expect(d.annotations.n1!.targets.map((t) => t.node)).toEqual(['tabletop', 'a1.side-right']);
-    expect(d.version).toBe(5);
+    expect(d.version).toBe(SCHEMA_VERSION);
     expect(d.variables).toEqual({});
   });
 
@@ -87,7 +89,7 @@ describe('golden files', () => {
 
   it('v3 → v4: old carcass joints are regenerated and cut into the sides', () => {
     const d = deserialize(goldenV3);
-    expect(d.version).toBe(5);
+    expect(d.version).toBe(SCHEMA_VERSION);
     expect(d.joints['a1.j.back-left']!.params.depth).toBe(24);
     expect(d.parts['a1.side-left']!.joinery!.map((c) => c.joint)).toEqual(['a1.j.bottom-left', 'a1.j.top-left', 'a1.j.back-left']);
   });
@@ -99,6 +101,8 @@ describe('golden files', () => {
     const shelf = cutParts(d).parts.find((p) => p.id === 'ws-s')!;
     expect(shelf.length).toBe(1408 + 32);
     expect(deserialize(serialize(d))).toEqual(d);
+    // v6: the carcass regenerates on load, so its drawers slide.
+    expect(Object.values(d.motions).map((m) => `${m.name}: ${m.type}`)).toEqual(['Drawer 1: slide', 'Drawer 2: slide']);
   });
 
   it('v5: blocks, a note on one, and a cabinet turned 30° load', () => {
@@ -110,6 +114,23 @@ describe('golden files', () => {
     expect(d.parts['a1.side-left']!.joinery!.length).toBeGreaterThan(0);
     expect(cutParts(d).parts.some((p) => d.parts[p.id]!.block)).toBe(false);
     expect(d.annotations.n1!.targets).toEqual([{ node: 'b1' }]);
+    expect(deserialize(serialize(d))).toEqual(d);
+  });
+
+  it('v6: carcass doors and drawers, a hand-built door and a lid load with their animations', () => {
+    const d = deserialize(goldenV6);
+    // Regenerated on load (v7 folders), so the generated animations come after the user's.
+    expect(Object.values(d.motions).map((m) => `${m.name ?? m.nodes[0]}: ${m.type}${m.role ? ' (generated)' : ''}`)).toEqual([
+      'Pantry door: hinge',
+      'lid: hinge',
+      'Drawer 1: slide (generated)',
+      'Left door: hinge (generated)',
+      'Right door: hinge (generated)',
+    ]);
+    expect(d.assemblies['a1.drawer-1']).toMatchObject({ name: 'Drawer 1', role: 'drawer-1' });
+    expect(d.assemblies['a1.drawer-1']!.children).toContain('a1.drawer-1-front');
+    expect(d.motions.swing).toEqual({ id: 'swing', name: 'Pantry door', type: 'hinge', nodes: ['pantry'], params: { side: 'left', angle: 95, seconds: 0.8 } });
+    expect(d.parts['a1.door-left']!.features.filter((f) => f.type === 'hole')).toHaveLength(2);
     expect(deserialize(serialize(d))).toEqual(d);
   });
 });

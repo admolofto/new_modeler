@@ -1,6 +1,7 @@
 /**
  * Viewport colors. The panels use the same meanings (ui/theme.ts): amber = selected,
- * violet = what an AI proposal changes, red = notes. Hover stays blue so it never reads as selected.
+ * violet = what an AI proposal changes, red = notes, yellow = an opening door or drawer hitting something.
+ * Hover stays blue so it never reads as selected.
  * The gizmo keeps the usual red / green / blue for x / y / z, and turns yellow under the cursor.
  */
 export const PALETTE = {
@@ -11,6 +12,8 @@ export const PALETTE = {
   hoverCss: '#4da3ff',
   /** Emissive tint on parts an AI proposal adds or changes. */
   ai: 0x6f5cff,
+  /** Emissive tint on what an opening door or drawer hits (warn yellow, as --warn in the panels). */
+  clash: 0xe5c07b,
   note: 0xe8543f,
   noteCss: '#e8543f',
   /** Dimension lines: neutral, like pencil on a drawing. */

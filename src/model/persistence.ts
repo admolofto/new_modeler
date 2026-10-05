@@ -19,6 +19,14 @@ export function deserialize(text: string): Doc {
   } catch {
     throw new ModelError('file is not valid JSON');
   }
+  return upgradeDoc(raw);
+}
+
+/**
+ * A saved doc of any version (a model file, or the doc inside a saved recipe) → current, validated
+ * doc. Throws ModelError with a readable reason.
+ */
+export function upgradeDoc(raw: unknown): Doc {
   const migrated = migratePluginParams(migrateDoc(raw));
   const parsed = DocSchema.safeParse(migrated);
   if (!parsed.success) {
@@ -26,9 +34,10 @@ export function deserialize(text: string): Doc {
   }
   const doc = { ...parsed.data, pluginVersions: pluginVersions() };
   try {
-    // Before v4, generated joints were metadata only; regenerate so their params match what the
-    // generator cuts now. Joint cuts are derived data: re-derive them.
-    if ((raw as { version: number }).version < 4) {
+    // Before v4, generated joints were metadata only; before v6, generators made no motions (drawers
+    // that slide); before v7, no folders (each drawer's parts). Regenerate so all match what the
+    // generator makes now. Joint cuts are derived data: re-derive them.
+    if ((raw as { version: number }).version < 7) {
       for (const asm of Object.values(doc.assemblies)) {
         if (!asm.generator || !generators.has(asm.generator.type)) continue;
         asm.generator.params = generators.parse(asm.generator.type, asm.generator.params);

@@ -99,6 +99,15 @@ const compose = (parent: Affine, local: Transform): Affine => ({
   t: apply(parent, local.position),
 });
 export const IDENTITY: Affine = { m: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], t: [0, 0, 0] };
+/** `a` after `b`: a point goes through `b`, then `a`. */
+export const composeAffine = (a: Affine, b: Affine): Affine => ({ m: mul(a.m, b.m), t: apply(a, b.t) });
+/** The reverse move (rotation + translation only). */
+export function invertAffine(a: Affine): Affine {
+  const m = transpose(a.m);
+  return { m, t: rotate(m, a.t).map((v) => -v) as V3 };
+}
+/** A node's own transform as an affine (node-local → parent). */
+export const affineOf = (t: Transform): Affine => ({ m: rotation(t.rotation), t: [...t.position] as V3 });
 
 /** Local → world for a part or assembly (its own frame, composed through its parents). */
 export function nodeAffine(doc: Doc, id: string): Affine {
@@ -233,7 +242,7 @@ const cross = (a: V3, b: V3): V3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[
 const column = (m: Mat3, j: number): V3 => [m[0][j]!, m[1][j]!, m[2][j]!];
 
 /** How far two oriented boxes interpenetrate along their least-overlapping axis (separating-axis test); ≤ 0 = apart. */
-function penetration(a: Affine, ab: Box3, b: Affine, bb: Box3): number {
+export function penetration(a: Affine, ab: Box3, b: Affine, bb: Box3): number {
   const obb = (f: Affine, box: Box3) => ({
     c: apply(f, [0, 1, 2].map((k) => (box.min[k]! + box.max[k]!) / 2) as V3),
     axes: [0, 1, 2].map((j) => column(f.m, j)) as V3[],
@@ -262,6 +271,11 @@ function penetration(a: Affine, ab: Box3, b: Affine, bb: Box3): number {
  */
 export function overlaps(doc: Doc, ids: Iterable<string>, boxes = worldBoxes(doc)): { a: string; b: string; depth: V3 }[] {
   const parents = parentIndex(doc);
+  /** A part's parent, skipping a generated folder it's in. */
+  const genParent = (id: string) => {
+    const p = parents.get(id);
+    return p && doc.assemblies[p]?.role !== undefined ? parents.get(p) : p;
+  };
   const focus = new Set(ids);
   const partIds = Object.keys(doc.parts).filter((id) => boxes.has(id));
   let affines: Map<string, Affine> | undefined;
@@ -271,9 +285,9 @@ export function overlaps(doc: Doc, ids: Iterable<string>, boxes = worldBoxes(doc
     for (let j = i + 1; j < partIds.length; j++) {
       const [a, b] = [partIds[i]!, partIds[j]!];
       if (!focus.has(a) && !focus.has(b)) continue;
-      // Parts of the same generated assembly are laid out by the generator.
-      const pa = parents.get(a);
-      if (pa && pa === parents.get(b) && doc.assemblies[pa]?.generator && doc.parts[a]!.role && doc.parts[b]!.role) continue;
+      // Parts of the same generated assembly (or its generated folders) are laid out by the generator.
+      const pa = genParent(a);
+      if (pa && pa === genParent(b) && doc.assemblies[pa]?.generator && doc.parts[a]!.role && doc.parts[b]!.role) continue;
       const A = boxes.get(a)!;
       const B = boxes.get(b)!;
       const depth = [0, 1, 2].map((k) => Math.min(A.max[k]!, B.max[k]!) - Math.max(A.min[k]!, B.min[k]!)) as V3;

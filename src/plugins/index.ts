@@ -6,5 +6,7 @@ import './features/pocket';
 import './features/edgeProfile';
 import './features/dado';
 import './generators/carcass';
+import './motions/hinge';
+import './motions/slide';
 
 export * from './registry';

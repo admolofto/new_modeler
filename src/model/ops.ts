@@ -1,8 +1,9 @@
 import { z } from 'zod';
-import { features, generators, PluginError, shapes } from '../plugins';
+import { features, generators, motions, PluginError, shapes } from '../plugins';
 import { descendants, entityKind, ModelError, nextFeatureId, nextId, parentIndex } from './doc';
 import { captureOverride, deleteGeneratedPart, generatedOwner, regenerate } from './generate';
 import { syncJoints } from './joinery';
+import { motionName, pruneMotions } from './motion';
 import { Annotation, AnnotationTarget, Feature, Grain, Id, Joint, JointType, Material, Override, Params, Rotation, Variable, Vec3, type Assembly, type Doc, type Part } from './schema';
 import { validateDoc } from './validate';
 import { setBinding, syncBindings, unbindVariable } from './variables';
@@ -21,11 +22,25 @@ const FeatureInput = Feature.extend({ id: Id.optional() });
 const Size = z.tuple([z.int().positive(), z.int().positive(), z.int().positive()]);
 
 /**
- * Builds the op schema around the given shape / feature / generator ref schemas. The model
+ * A motion entity: what moves (`nodes`, siblings, the first one's frame first) and how (`type` +
+ * `params`). The model passes an opaque type; the AI tool schema one option per motion plugin.
+ */
+export function motionEntity<T extends z.ZodType, P extends z.ZodType>(type: T, params: P) {
+  return z.object({ kind: z.literal('motion'), id: Id.optional(), name: z.string().optional(), nodes: z.array(Id).min(1), type, params });
+}
+type MotionEntity = ReturnType<typeof motionEntity>;
+
+/**
+ * Builds the op schema around the given shape / feature / generator / motion ref schemas. The model
  * uses opaque `{ type, params }` refs (the registry validates params); the AI tool schema
  * plugs in per-plugin unions so tool docs come straight from the registry (ai/tools.ts).
  */
-export function makeOpSchema<S extends z.ZodType, F extends z.ZodType, G extends z.ZodType>(refs: { shape: S; feature: F; generator: G }) {
+export function makeOpSchema<S extends z.ZodType, F extends z.ZodType, G extends z.ZodType, M extends MotionEntity | z.ZodDiscriminatedUnion<MotionEntity[]>>(refs: {
+  shape: S;
+  feature: F;
+  generator: G;
+  motion: M;
+}) {
   const entity = z.discriminatedUnion('kind', [
     z.object({
       kind: z.literal('part'),
@@ -70,6 +85,7 @@ export function makeOpSchema<S extends z.ZodType, F extends z.ZodType, G extends
       resolved: z.boolean().default(false),
     }),
     Variable.extend({ kind: z.literal('variable'), unit: Variable.shape.unit.default('length') }),
+    refs.motion,
   ]);
 
   return z.discriminatedUnion('op', [
@@ -100,6 +116,7 @@ export const Op = makeOpSchema({
   shape: z.object({ type: z.string(), params: Params }),
   feature: FeatureInput,
   generator: z.object({ type: z.string(), params: Params }),
+  motion: motionEntity(z.string().min(1), Params.default(() => ({}))),
 });
 export type Op = z.input<typeof Op>;
 
@@ -116,6 +133,13 @@ const MaterialPatch = Material.omit({ id: true }).partial().strict();
 const JointPatch = Joint.pick({ type: true, parts: true, params: true }).partial().strict();
 const AnnotationPatch = Annotation.omit({ id: true }).partial().strict();
 const VariablePatch = Variable.omit({ id: true }).partial().strict();
+/** `params` merge into the motion's; a null removes one (back to its default). A new `type` starts its params afresh. */
+const MotionPatch = z.strictObject({
+  name: z.string().nullable().optional(),
+  type: z.string().min(1).optional(),
+  params: Params.optional(),
+  nodes: z.array(Id).min(1).optional(),
+});
 
 /** Length variables hold whole 1/64ths like every other length. */
 const roundLength = (v: { unit: string; value: number }) => (v.unit === 'length' ? Math.round(v.value) : v.value);
@@ -235,7 +259,26 @@ function add(d: Doc, op: Extract<z.output<typeof Op>, { op: 'add' }>): void {
       d.variables[id] = { id, name: e.name, group: e.group, unit: e.unit, value: roundLength(e) };
       return;
     }
+    case 'motion': {
+      const id = claimId(d, e.id, 'mo');
+      requireNodes(d, e.nodes);
+      d.motions[id] = { id, ...(e.name && { name: e.name }), type: e.type, nodes: [...e.nodes], params: motions.parse(e.type, e.params) };
+      return;
+    }
   }
+}
+
+/** What a motion moves must exist when it's set (deleting it later just drops it from the motion). */
+function requireNodes(d: Doc, ids: readonly string[]): void {
+  for (const id of ids) if (!d.parts[id] && !d.assemblies[id]) throw new ModelError(`no part or folder "${id}" to animate`);
+}
+
+/** Generated motions come and go with their cabinet's params, like generated joints. */
+function generatedMotion(d: Doc, id: string): ModelError | null {
+  const m = d.motions[id]!;
+  if (m.role === undefined) return null;
+  const asm = generatedOwner(d, m.nodes[0]!);
+  return new ModelError(`${motionName(d, m)}'s animation comes with "${asm?.name ?? 'its cabinet'}"; change its params instead`);
 }
 
 /** `b3` → "Block 3"; other ids → "Block". */
@@ -271,10 +314,13 @@ function update(d: Doc, id: string, rawPatch: Record<string, unknown>): void {
       if (patch.hidden !== undefined) asm.hidden = patch.hidden;
       if (patch.unclickable !== undefined) asm.unclickable = patch.unclickable;
       if (patch.params) {
+        const owner = generatedOwner(d, id);
+        if (owner) throw new ModelError(`"${asm.name}" is generated by "${owner.name}"; change that assembly's params instead`);
         if (!asm.generator) throw new ModelError(`assembly "${asm.name}" has no generator params`);
         asm.generator.params = generators.parse(asm.generator.type, { ...asm.generator.params, ...patch.params });
         regenerate(d, id);
       }
+      captureOverride(d, id);
       return;
     }
     case 'material': {
@@ -300,6 +346,24 @@ function update(d: Doc, id: string, rawPatch: Record<string, unknown>): void {
       v.value = roundLength(v);
       return;
     }
+    case 'motion': {
+      const generated = generatedMotion(d, id);
+      if (generated) throw generated;
+      const patch = parsePatch(MotionPatch, rawPatch);
+      const m = d.motions[id]!;
+      const type = patch.type ?? m.type;
+      const params: Record<string, unknown> = type === m.type ? { ...m.params, ...patch.params } : { ...patch.params };
+      for (const [k, v] of Object.entries(params)) if (v === null) delete params[k];
+      m.params = motions.parse(type, params);
+      m.type = type;
+      if (patch.nodes) {
+        requireNodes(d, patch.nodes);
+        m.nodes = [...patch.nodes];
+      }
+      if (patch.name === null || patch.name === '') delete m.name;
+      else if (patch.name !== undefined) m.name = patch.name;
+      return;
+    }
     case null:
       throw new ModelError(`nothing with id "${id}"`);
   }
@@ -316,6 +380,10 @@ function remove(d: Doc, id: string): void {
       for (const c of descendants(d, id)) {
         delete d.parts[c];
         delete d.assemblies[c];
+      }
+      if (generatedOwner(d, id)) {
+        d.assemblies[id]!.children = [];
+        return deleteGeneratedPart(d, id);
       }
       detach(d, id);
       delete d.assemblies[id];
@@ -340,6 +408,12 @@ function remove(d: Doc, id: string): void {
       unbindVariable(d, id);
       delete d.variables[id];
       return;
+    case 'motion': {
+      const generated = generatedMotion(d, id);
+      if (generated) throw generated;
+      delete d.motions[id];
+      return;
+    }
     case null:
       throw new ModelError(`nothing with id "${id}"`);
   }
@@ -458,6 +532,7 @@ export function applyOps(doc: Doc, ops: readonly Op[]): OpResult {
   }
   try {
     syncBindings(doc, d);
+    pruneMotions(d);
     syncJoints(d);
     validateDoc(d);
   } catch (err) {

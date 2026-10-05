@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_CARCASS, demoDoc, emptyDoc } from './defaults';
 import { applyOps, type Op } from './ops';
 import { captureRecipe, insertRecipe, parseRecipe, recipeInputs, serializeRecipe } from './recipes';
-import type { Doc } from './schema';
+import { SCHEMA_VERSION, type Doc } from './schema';
 import { createStore } from './store';
 import { docErrors } from './validate';
 import { nodeAffine } from './world';
@@ -262,6 +262,46 @@ describe('recipes', () => {
     const stale = captureRecipe(demoDoc(), { name: 'Cabinet' });
     stale.doc.parts['a1.side-left']!.name = 'Changed without override';
     expect(() => parseRecipe(stale)).toThrow(/stale/);
+  });
+
+  it('upgrades recipes saved by an older app, and refuses ones from a newer one', () => {
+    const recipe = JSON.parse(serializeRecipe(captureRecipe(closet(), { name: 'Riser', nodeIds: ['riser'] })));
+    recipe.doc.version = 5;
+    delete recipe.doc.motions;
+    const upgraded = parseRecipe(recipe);
+    expect(upgraded.doc.version).toBe(SCHEMA_VERSION);
+    expect(upgraded.doc.motions).toEqual({});
+    expect(() => parseRecipe({ ...recipe, doc: { ...recipe.doc, version: 99 } })).toThrow(/update the app/);
+  });
+
+  it('upgrades an older recipe’s cabinet so its drawers slide, in the recipe and in every copy', () => {
+    const source = ok(emptyDoc(), [{ op: 'add', entity: { kind: 'assembly', id: 'a1', name: 'Drawer base', generator: { type: 'carcass', params: { ...DEFAULT_CARCASS, drawers: [0, 0], shelves: 0 } } } }]);
+    const recipe = JSON.parse(serializeRecipe(captureRecipe(source, { name: 'Drawer base' })));
+    // Saved by an older app: no motions, and no `doors` param yet.
+    recipe.doc.version = 5;
+    delete recipe.doc.motions;
+    delete recipe.doc.assemblies.a1.generator.params.doors;
+    const upgraded = parseRecipe(recipe);
+    expect(Object.keys(upgraded.doc.motions)).toEqual(['a1.motion.drawer-1', 'a1.motion.drawer-2']);
+    const inserted = insertRecipe(emptyDoc(), upgraded);
+    expect(Object.values(inserted.doc.motions).map((m) => [m.id, m.name])).toEqual([
+      ['recipe1_a1.motion.drawer-1', 'Drawer 1'],
+      ['recipe1_a1.motion.drawer-2', 'Drawer 2'],
+    ]);
+  });
+
+  it('keeps animations inside the selection and says which ones it leaves out', () => {
+    const source = ok(closet(), [
+      { op: 'add', entity: { kind: 'motion', id: 'lift', nodes: ['riserBack', 'riserFront'], type: 'slide', params: { toward: 'top' } } },
+      { op: 'add', entity: { kind: 'motion', id: 'swing', nodes: ['riser', 'outside'], type: 'hinge', params: { side: 'left' } } },
+    ]);
+    const recipe = captureRecipe(source, { name: 'Riser', nodeIds: ['riser'] });
+    expect(Object.keys(recipe.doc.motions)).toEqual(['lift']);
+    expect(recipe.warnings.join(' ')).toMatch(/"L-shaped base riser" animation also moves excluded parts/);
+    const inserted = insertRecipe(emptyDoc(), recipe);
+    const copy = Object.values(inserted.doc.motions);
+    expect(copy).toHaveLength(1);
+    expect(copy[0]!.nodes).toEqual([inserted.idMap.riserBack, inserted.idMap.riserFront]);
   });
 
   it('rejects generator overrides without a generator atomically', () => {

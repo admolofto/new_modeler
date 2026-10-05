@@ -1,4 +1,4 @@
-import { features, generators, shapes } from '../plugins';
+import { features, generators, motions, shapes } from '../plugins';
 import { ModelError } from './doc';
 import { SCHEMA_VERSION } from './schema';
 
@@ -19,6 +19,12 @@ export const MIGRATIONS: Record<number, Migration> = {
   // v5: blockout placeholders (`part.block`, which have no `material`) and rotations at any angle.
   // Nothing stored changes shape; the bump keeps older apps from misreading blocks.
   4: (doc) => doc,
+  // v6: motions (how doors, drawers and lids open). Loading regenerates older generated
+  // assemblies, so a carcass's drawers gain theirs (persistence.ts `upgradeDoc`).
+  5: (doc) => ({ ...doc, motions: {} }),
+  // v7: generated folders (`assembly.role`: a carcass's drawers each get a "Drawer N" folder).
+  // Loading regenerates older generated assemblies to group their parts (persistence.ts `upgradeDoc`).
+  6: (doc) => doc,
 };
 
 /** Runs doc-level migrations up to `target`. Input is untrusted JSON. */
@@ -47,7 +53,7 @@ export function migratePluginParams(doc: Raw): Raw {
   const saved = (doc.pluginVersions ?? {}) as Record<string, number>;
   const upgrade = (
     kind: string,
-    reg: typeof shapes | typeof features | typeof generators,
+    reg: typeof shapes | typeof features | typeof generators | typeof motions,
     type: string,
     params: Raw,
   ): Raw => {
@@ -68,6 +74,9 @@ export function migratePluginParams(doc: Raw): Raw {
   const asms = (doc.assemblies ?? {}) as Record<string, { generator?: { type: string; params: Raw } }>;
   for (const asm of Object.values(asms)) {
     if (asm.generator) asm.generator.params = upgrade('generator', generators, asm.generator.type, asm.generator.params);
+  }
+  for (const m of Object.values((doc.motions ?? {}) as Record<string, { type: string; params: Raw }>)) {
+    m.params = upgrade('motion', motions, m.type, m.params);
   }
   return doc;
 }

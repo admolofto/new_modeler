@@ -20,6 +20,7 @@ export function emptyDoc(): Doc {
     joints: {},
     annotations: {},
     variables: {},
+    motions: {},
     roots: [],
   };
 }

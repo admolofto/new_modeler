@@ -2,7 +2,7 @@ import type { Doc, Part } from './schema';
 
 export class ModelError extends Error {}
 
-export type EntityKind = 'part' | 'assembly' | 'joint' | 'material' | 'annotation' | 'variable';
+export type EntityKind = 'part' | 'assembly' | 'joint' | 'material' | 'annotation' | 'variable' | 'motion';
 
 export function entityKind(d: Doc, id: string): EntityKind | null {
   if (id in d.parts) return 'part';
@@ -11,6 +11,7 @@ export function entityKind(d: Doc, id: string): EntityKind | null {
   if (id in d.materials) return 'material';
   if (id in d.annotations) return 'annotation';
   if (id in d.variables) return 'variable';
+  if (id in d.motions) return 'motion';
   return null;
 }
 
@@ -45,6 +46,16 @@ export function descendants(d: Doc, asmId: string): string[] {
     }
   };
   walk(asmId);
+  return out;
+}
+
+/** Every part that moves with these nodes (themselves, or everything inside them). */
+export function movingParts(d: Doc, ids: readonly string[]): Set<string> {
+  const out = new Set<string>();
+  for (const id of ids) {
+    if (d.parts[id]) out.add(id);
+    for (const c of descendants(d, id)) if (d.parts[c]) out.add(c);
+  }
   return out;
 }
 

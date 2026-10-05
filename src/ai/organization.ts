@@ -16,7 +16,7 @@ export function treeIssues(before: Doc, after: Doc): string[] {
   const touched = new Set(
     [...parents.keys()].filter((id) => {
       const now = node(after, id);
-      if (!now || after.parts[id]?.role) return false;
+      if (!now || now.role !== undefined) return false;
       const was = node(before, id);
       return !was || oldParents.get(id) !== parents.get(id) || was.name !== now.name;
     }),
