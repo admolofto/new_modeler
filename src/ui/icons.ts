@@ -38,6 +38,7 @@ const PATHS = {
   play: '<path d="M7 4.5v15a.5.5 0 0 0 .76.43l12.5-7.5a.5.5 0 0 0 0-.86L7.76 4.07A.5.5 0 0 0 7 4.5Z"/>',
   present: '<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/><path d="M10 7.5v5l4-2.5z"/>',
   doorClosed: '<path d="M18 20V6a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v14"/><path d="M2 20h20"/><path d="M14 12v.01"/>',
+  plan: '<rect x="3" y="3" width="18" height="18" rx="1"/><path d="M3 13h6"/><path d="M13 13h8"/><path d="M13 3v5"/><path d="M9 13a4 4 0 0 1 4-4"/>',
   room: '<path d="M3 20V8l9-5 9 5v12"/><path d="M2 20h20"/><path d="M9 20v-6h4v6"/><path d="M15 10h3v3h-3z"/>',
   props: '<path d="M8 3h8l3 7H5z"/><path d="M12 10v9"/><path d="M8 21h8"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>',

@@ -59,6 +59,7 @@ import { mountGltfExport } from './ui/gltf';
 import { mountTopBar } from './ui/topbar';
 import { installModalKeys } from './ui/present/keys';
 import { mountPresent } from './ui/present/mount';
+import { mountPlanView } from './ui/planView';
 import { fmt, units } from './ui/units';
 import { mountVoicePanel } from './ui/voicePanel';
 
@@ -162,6 +163,7 @@ const render = () => {
   shop.refresh();
   motionControls.sync();
   roomBar.sync();
+  plan.refresh();
 };
 
 store.subscribe((doc) => {
@@ -436,10 +438,27 @@ const present = mountPresent({
     interaction.cancelDrag();
     selection.setHover(null);
     if (voice.session.recording) voice.session.cancel();
+    plan.toggle(false);
   },
   setPresenting: (on) => {
     presenting = on;
     if (!on) render();
+  },
+});
+// The 2D plan (Shift+2): the room from above as a sketch, for blocking out a layout.
+const plan = mountPlanView({
+  slot: top.view, stage, store, selection, shown, editBlocked,
+  setPreview: (doc) => {
+    dragPreview = doc;
+    render();
+  },
+  quiesce: () => {
+    tools.set('select');
+    blockTool.toggle(false);
+    placeTool.stop();
+    splitTool.toggle(false);
+    interaction.cancelDrag();
+    selection.setHover(null);
   },
 });
 ready = true;
@@ -464,4 +483,4 @@ window.addEventListener('keydown', (e) => {
   e.preventDefault();
 });
 
-if (import.meta.env.DEV) Object.assign(window, { __modeler: { store, scene: viewport.scene, sceneSync, selection, proposals, viewport, voice, shop, notes, units, blockTool, splitTool, placeTool, tools, gizmo: gizmoCtl, isolation, player, present } });
+if (import.meta.env.DEV) Object.assign(window, { __modeler: { store, scene: viewport.scene, sceneSync, selection, proposals, viewport, voice, shop, notes, units, blockTool, splitTool, placeTool, tools, gizmo: gizmoCtl, isolation, player, present, plan } });
