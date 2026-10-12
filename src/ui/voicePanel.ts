@@ -1,3 +1,4 @@
+import { accessFetch } from '../ai/access';
 import { TidyOutput, type TidyInput } from '../ai/tidy';
 import { targetPoint } from '../edit/targets';
 import { hiddenNodes } from '../model/visibility';
@@ -84,7 +85,7 @@ export interface VoicePanel {
 
 /** The dev server's tidy endpoint (server/aiProxy.ts), on the chat's engine. */
 async function proxyTidy(engine: Engine, input: TidyInput, signal: AbortSignal): Promise<TidyOutput> {
-  const res = await fetch('/api/ai/tidy-notes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ engine, input }), signal });
+  const res = await accessFetch('/api/ai/tidy-notes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ engine, input }), signal });
   const body = (await res.json().catch(() => ({}))) as { error?: { message?: string; hint?: string } };
   if (!res.ok) throw new Error([body.error?.message ?? `HTTP ${res.status}`, body.error?.hint].filter(Boolean).join(' — '));
   return TidyOutput.parse(body);

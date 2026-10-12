@@ -1,3 +1,4 @@
+import { accessFetch, accessHeaders, askAccessCode, captureAccessCode } from '../ai/access';
 import { newChat, runTurn, userTurnText, type ImageAttachment, type Send } from '../ai/agent';
 import { readCliStream } from '../ai/cliTransport';
 import { defaultEngine, effortName, engineName, type Engine, type EngineConfig } from '../ai/engines';
@@ -199,6 +200,7 @@ export function mountChatPanel(
   viewNote?: () => string | null,
 ): ChatPanel {
   parent.append(el('style', {}, STYLE + MARKDOWN_STYLE));
+  captureAccessCode(location, history);
   let engine: Engine = loadEngine() ?? 'claude-code';
   let config: EngineConfig | null = null;
   const savedModels = loadChoices(MODELS_KEY);
@@ -268,7 +270,7 @@ export function mountChatPanel(
     if (selectedModel()) modelSel.append(el('option', { value: selectedModel() }, selectedModel()));
     modelSel.value = selectedModel();
     try {
-      const response = await fetch(`/api/ai/models?engine=${provider}`);
+      const response = await fetch(`/api/ai/models?engine=${provider}`, { headers: accessHeaders() });
       const data = await response.json();
       if (request !== modelOptionsRequest) return;
       if (!response.ok) throw new Error(data.error?.message ?? 'Model list unavailable');
@@ -477,7 +479,8 @@ export function mountChatPanel(
       [text, ok] = !config.codex.available ? ['Codex CLI not found', false]
         : !config.codex.loggedIn ? ['Sign in with codex login', false]
         : [`your login · ${config.codex.model}`, true];
-    } else [text, ok] = config.api.hasKey ? [`${selectedModel() || config.api.model} · ${selectedEffort() || config.api.effort}`, true] : ['no ANTHROPIC_API_KEY', false];
+    } else if (config.hosted && config.access !== 'ok') [text, ok] = ['Click to enter the access code', false];
+    else [text, ok] = config.api.hasKey ? [`${selectedModel() || config.api.model} · ${selectedEffort() || config.api.effort}`, true] : ['no ANTHROPIC_API_KEY', false];
     modelLabel.textContent = text;
     modelLabel.title = engine === 'codex' && config?.codex.hint ? config.codex.hint : text;
     modelLabel.classList.toggle('bad', !ok);
@@ -486,10 +489,13 @@ export function mountChatPanel(
   function refreshConfig(initial = false) {
     if (checkingConfig) return;
     checkingConfig = true;
-    void fetch('/api/ai/config', { cache: 'no-store' })
+    void fetch('/api/ai/config', { cache: 'no-store', headers: accessHeaders() })
     .then((r) => r.json())
     .then((c: EngineConfig) => {
       config = c;
+      // The hosted app has only the API engine.
+      for (const option of engineSel.options) option.hidden = !!c.hosted && option.value !== 'api';
+      engineSel.hidden = !!c.hosted;
       if (initial && !running) { engine = defaultEngine(c, loadEngine()); void loadModels(); }
       showEngine();
       showEfforts();
@@ -498,6 +504,9 @@ export function mountChatPanel(
     .finally(() => { checkingConfig = false; });
   }
   refreshConfig(true);
+  modelLabel.addEventListener('click', () => {
+    if (config?.hosted && config.access !== 'ok' && askAccessCode()) refreshConfig();
+  });
   window.addEventListener('focus', () => refreshConfig());
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshConfig(); });
   engineSel.addEventListener('change', () => {
@@ -784,7 +793,7 @@ export function mountChatPanel(
 
 /** API engine transport: the local proxy (server/aiProxy.ts) holds the key. */
 export const proxySend: Send = async (req, signal) => {
-  const res = await fetch('/api/ai/messages', {
+  const res = await accessFetch('/api/ai/messages', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(req),

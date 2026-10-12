@@ -2,6 +2,9 @@ export type Engine = 'claude-code' | 'codex' | 'api';
 
 /** `effort` is the server's configured default (.env.local), if any. */
 export interface EngineConfig {
+  /** Served from the hosted app (server/hosted.ts): only the API engine, behind an access code. */
+  hosted?: boolean;
+  access?: 'ok' | 'needed';
   api: { model: string; effort: string; hasKey: boolean };
   claudeCode: { available: boolean; version: string | null; model: string; effort?: string };
   codex: { available: boolean; version: string | null; model: string; effort?: string; loggedIn: boolean; hint?: string };
@@ -14,6 +17,7 @@ export const effortName = (effort: string) => EFFORT_NAMES[effort] ?? effort;
 
 /** Keep a user's choice; otherwise prefer an installed, configured engine. */
 export function defaultEngine(config: EngineConfig, saved: Engine | null): Engine {
+  if (config.hosted) return 'api';
   if (saved) return saved;
   if (config.claudeCode.available) return 'claude-code';
   if (config.codex.available && config.codex.loggedIn) return 'codex';

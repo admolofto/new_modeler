@@ -3,3 +3,4 @@ dist
 *.local
 evals/results
 .env
+.vercel

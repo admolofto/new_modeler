@@ -21,6 +21,7 @@ import { createToolDraft } from './render/toolDraft';
 import { createViewport } from './render/viewport';
 import { frameNodes } from './render/frameNodes';
 import { connectBridge } from './ui/aiBridge';
+import { watchForUpdates } from './ui/updateCheck';
 import { attachBlockTool } from './ui/blockTool';
 import { el } from './ui/dom';
 import { icon } from './ui/icons';
@@ -231,6 +232,7 @@ chat.subscribe(recipes.refresh);
 proposals.subscribe(recipes.refresh);
 const notes = mountNotes({ store, selection, panel: chat, shown, reveal: showChat });
 connectBridge(proposals);
+watchForUpdates();
 
 const setSnapNode = (id: string | null) => {
   if (id === snapNode) return;

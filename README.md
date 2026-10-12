@@ -250,6 +250,24 @@ They support screenshots, follow-up messages, and Stop. Switching providers or
 starting a new conversation starts a fresh AI session. Voice-note cleanup
 follows the selected provider. The terminal MCP endpoint is `/mcp`.
 
+## Sharing the app
+
+The app can run as a web link, so someone else only needs a browser.
+`npm run build:vercel` writes Vercel's prebuilt layout to `.vercel/output`:
+the static app plus one function for the AI (`server/hosted.ts`). Connect the
+GitHub repo to a Vercel project (`vercel.json` sets the build command) and set
+two environment variables there:
+
+- `ANTHROPIC_API_KEY`: the hosted AI uses the API provider only, billed to this key.
+- `APP_ACCESS_CODE`: every AI call must carry it, so the link alone can't spend
+  the key. Share the link as `https://<site>/?code=<code>`; the browser remembers
+  the code and drops it from the address. Without it, the AI panel says
+  "Click to enter the access code".
+
+Every push to `main` redeploys. An open tab notices the new version when it
+regains focus (or within half an hour) and offers **Reload**; the model is
+autosaved in the browser, so reloading keeps the work.
+
 ## Checks
 
 ```powershell
