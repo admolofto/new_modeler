@@ -195,6 +195,12 @@ export function mountVersions(o: VersionsOptions): Versions {
     return !why;
   };
 
+  /** A version for the AI: `v2 · Galley (open, made by you)`. */
+  const about = (v: Version) => {
+    const tags = [v.id === set.active && 'open', v.archived && 'archived', v.by === 'ai' && 'made by you'].filter(Boolean);
+    return `${versionTitle(v)}${tags.length ? ` (${tags.join(', ')})` : ''}`;
+  };
+
   function open(id: string): boolean {
     if (id === set.active) return true;
     const target = find(id);
@@ -507,11 +513,14 @@ export function mountVersions(o: VersionsOptions): Versions {
       saveDoc(id);
       changed();
     },
+    find(ref) {
+      const v = findVersion(set, ref);
+      return v && { id: v.id, about: `Version ${about(v)}${v.summary ? `: ${v.summary}` : ''}.` };
+    },
+    list: () => set.versions.map(about).join(', '),
     describe() {
       if (set.versions.length < 2) return '';
-      const open = openVersions(set).map((v) => `${versionTitle(v)}${v.id === set.active ? ' (open)' : ''}${v.by === 'ai' ? ' (made by you)' : ''}`);
-      const archived = set.versions.length - open.length;
-      return `The user's versions of this design (tabs): ${open.join(', ')}${archived ? `; ${archived} archived` : ''}.`;
+      return `The user's versions of this design (read any with read_version): ${set.versions.map(about).join(', ')}.`;
     },
   };
 }

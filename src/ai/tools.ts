@@ -19,6 +19,7 @@ import { cross, normal, type Side } from '../plugins/motions/sides';
 import { refitRoomOps, roomAround, roomIssues, roomOf, roomParams, rooms, openingText, type RoomFitOptions } from '../model/room';
 import { entityKind } from '../model/doc';
 import { ROOM_SIDES } from '../plugins/generators/room';
+import { modelSnapshot } from './context';
 import { treeIssues } from './organization';
 
 /**
@@ -98,6 +99,7 @@ export const TOOL_INSERT_RECIPE = 'insert_recipe';
 export const TOOL_FIT_ROOM = 'fit_room';
 export const TOOL_ASK = 'ask_user';
 export const TOOL_NEW_VERSION = 'new_version';
+export const TOOL_READ_VERSION = 'read_version';
 
 const Question = z.object({
   question: z.string().trim().min(1).max(400),
@@ -212,6 +214,14 @@ export function toolDefs(): Tool[] {
       input_schema: jsonSchema(z.object({ name: z.string().trim().min(1).max(40), summary: z.string().trim().max(200).optional(), from: z.string().optional() })),
     },
     {
+      name: TOOL_READ_VERSION,
+      description:
+        'Reads another version of this design (any of the user\'s versions, archived ones too) as a model snapshot, read-only. Use it ' +
+        'when the user refers to another version ("do it like v1"): read it, then make the change on the model you\'re working on. ' +
+        'version: its label ("v1") or name.',
+      input_schema: jsonSchema(z.object({ version: z.string().min(1) })),
+    },
+    {
       name: TOOL_ASK,
       description:
         'Asks the user clarifying questions in the chat. Use it before building when you are unsure about something that changes ' +
@@ -274,6 +284,10 @@ export interface VersionHost {
   doc(id: string): Doc | undefined;
   /** Saves a version's doc. */
   save(id: string, doc: Doc): void;
+  /** A version by label ("v1") or name: its id and a line about it; undefined if there's none. */
+  find(ref: string): { id: string; about: string } | undefined;
+  /** Every version, a line each, for a lookup that found none. */
+  list(): string;
 }
 
 export interface ToolOutcome {
@@ -695,8 +709,23 @@ function newVersionTool(state: ToolState, input: unknown): ToolOutcome {
  * Runs one AI tool. After new_version, tools work on that version's doc and save it there; the
  * open version's proposal (`draft` / `ops`) is left alone.
  */
+function readVersionTool(state: ToolState, input: unknown): ToolOutcome {
+  if (!state.versions) return { content: 'Versions aren’t available here.', isError: true, summary: '✗ versions unavailable' };
+  const r = z.object({ version: z.string().min(1) }).safeParse(input);
+  if (!r.success) return { content: 'Expected {"version": "v1"}.', isError: true, summary: '✗ read_version: bad input' };
+  const found = state.versions.find(r.data.version);
+  const doc = found && state.versions.doc(found.id);
+  if (!found || !doc) return { content: `There's no version "${r.data.version}". The versions: ${state.versions.list()}`, isError: true, summary: `✗ no version ${r.data.version}` };
+  return {
+    content: `${found.about} Read-only: to use what's here, make the changes on the model you're working on.\n<version>\n${modelSnapshot(doc)}\n</version>`,
+    isError: false,
+    summary: `read version ${r.data.version}`,
+  };
+}
+
 export function runTool(state: ToolState, name: string, input: unknown): ToolOutcome {
   if (name === TOOL_NEW_VERSION) return newVersionTool(state, input);
+  if (name === TOOL_READ_VERSION) return readVersionTool(state, input);
   const b = state.building;
   const doc = b && state.versions?.doc(b.id);
   if (!b || !doc || name === TOOL_ASK) return runOn(state, name, input);

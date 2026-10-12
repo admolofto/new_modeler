@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import '../plugins';
-import { runTool, TOOL_APPLY, TOOL_NEW_VERSION, type ToolState, type VersionHost } from '../ai/tools';
+import { runTool, TOOL_APPLY, TOOL_NEW_VERSION, TOOL_READ_VERSION, type ToolState, type VersionHost } from '../ai/tools';
 import { demoDoc, emptyDoc } from './defaults';
 import { applyOps } from './ops';
 import { serialize } from './persistence';
@@ -104,6 +104,8 @@ describe('new_version tool', () => {
       },
       doc: (id) => docs.get(id),
       save: (id, doc) => void docs.set(id, doc),
+      find: (ref) => (docs.has(ref) ? { id: ref, about: `Version ${ref}.` } : undefined),
+      list: () => [...docs.keys()].join(', '),
     };
     return { h, docs };
   }
@@ -124,6 +126,20 @@ describe('new_version tool', () => {
     expect(Object.keys(docs.get('v2')!.parts).sort()).toEqual(['a', 'g']);
     expect(Object.keys(docs.get('v3')!.parts).sort()).toEqual(['a', 'i']);
     expect(Object.keys(docs.get('v1')!.parts)).toEqual(['a']);
+  });
+
+  it('reads any version, read-only, even while building another', () => {
+    const { h, docs } = host(block('a'));
+    docs.set('v2', block('b'));
+    const state: ToolState = { draft: docs.get('v1')!, ops: [], versions: h };
+    runTool(state, TOOL_NEW_VERSION, { name: 'Copy' });
+    const out = runTool(state, TOOL_READ_VERSION, { version: 'v2' });
+    expect(out.isError).toBe(false);
+    expect(out.content).toContain('"b"');
+    expect(out.content).not.toContain('"a"');
+    const miss = runTool(state, TOOL_READ_VERSION, { version: 'v9' });
+    expect(miss.isError).toBe(true);
+    expect(miss.content).toContain('v1, v2, v3');
   });
 
   it('says why when there are no versions or the base is missing', () => {
