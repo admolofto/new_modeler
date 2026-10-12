@@ -96,6 +96,14 @@ export const TOOL_CUT_LIST = 'cut_list';
 export const TOOL_GET_RECIPE = 'get_recipe';
 export const TOOL_INSERT_RECIPE = 'insert_recipe';
 export const TOOL_FIT_ROOM = 'fit_room';
+export const TOOL_ASK = 'ask_user';
+
+const Question = z.object({
+  question: z.string().trim().min(1).max(400),
+  options: z.array(z.string().trim().min(1).max(120)).max(4).optional().describe('2–4 short likely answers; the user can also type their own.'),
+});
+export type Question = z.infer<typeof Question>;
+const AskInput = z.object({ questions: z.array(Question).min(1).max(4) });
 
 /** A length in 1/64" or an inch string ("30in"). */
 const Length = z.union([z.int(), z.string()]);
@@ -192,11 +200,23 @@ export function toolDefs(): Tool[] {
         ceiling: z.boolean().optional(),
       })),
     },
+    {
+      name: TOOL_ASK,
+      description:
+        'Asks the user clarifying questions in the chat. Use it before building when you are unsure about something that changes ' +
+        'the result (overall size, style, which part they mean, how it goes together) and a wrong guess would cost them a redo. ' +
+        'Put every question in one call, each with 2–4 short likely answers. Then end your turn: the answers arrive as the user\'s ' +
+        'next message. Changes you already made this turn stay in the proposal.',
+      input_schema: jsonSchema(AskInput),
+    },
   ];
 }
 
-/** MCP adds get_model: a Claude Code session has no app-built snapshot in its turns. */
-export function mcpToolDefs(): Tool[] {
+/**
+ * MCP adds get_model: a Claude Code session has no app-built snapshot in its turns. ask_user is only for the in-app chat
+ * (`chat`), where the questions show; an outside MCP client talks to its user itself.
+ */
+export function mcpToolDefs({ chat = false } = {}): Tool[] {
   return [
     {
       name: TOOL_GET_MODEL,
@@ -205,7 +225,7 @@ export function mcpToolDefs(): Tool[] {
         'whether a proposal is pending. If one is, the model shown includes it. Call this before changing anything.',
       input_schema: { type: 'object', properties: {} },
     },
-    ...toolDefs(),
+    ...toolDefs().filter((t) => chat || t.name !== TOOL_ASK),
   ];
 }
 
@@ -236,6 +256,8 @@ export interface ToolOutcome {
   isError: boolean;
   /** One line for the chat log. */
   summary: string;
+  /** ask_user: the questions for the chat to show. */
+  questions?: Question[];
 }
 
 const fmtBox = (b: Box3) => {
@@ -612,6 +634,19 @@ function inspectTool(state: ToolState, input: unknown): ToolOutcome {
   return { content, isError: false, summary: `inspected ${part.id}` };
 }
 
+/** The chat shows the questions; the answers come back as the user's next message, so the turn should end here. */
+function askTool(input: unknown): ToolOutcome {
+  const r = AskInput.safeParse(input);
+  if (!r.success) return { content: `Questions rejected: ${z.prettifyError(r.error)}`, isError: true, summary: '✗ questions rejected' };
+  const n = r.data.questions.length;
+  return {
+    content: 'The questions are shown to the user. End your turn now, without more tool calls and without repeating the questions; their answers arrive as the next message.',
+    isError: false,
+    summary: `asked ${n} question${n === 1 ? '' : 's'}`,
+    questions: r.data.questions,
+  };
+}
+
 export function runTool(state: ToolState, name: string, input: unknown): ToolOutcome {
   if (name === TOOL_APPLY) return applyTool(state, input);
   if (name === TOOL_INSPECT) return inspectTool(state, input);
@@ -619,6 +654,7 @@ export function runTool(state: ToolState, name: string, input: unknown): ToolOut
   if (name === TOOL_GET_RECIPE) return getRecipeTool(state, input);
   if (name === TOOL_INSERT_RECIPE) return insertRecipeTool(state, input);
   if (name === TOOL_FIT_ROOM) return fitRoomTool(state, input);
+  if (name === TOOL_ASK) return askTool(input);
   return { content: `Unknown tool "${name}".`, isError: true, summary: `✗ unknown tool ${name}` };
 }
 

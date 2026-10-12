@@ -4,7 +4,7 @@ import type { Recipe } from '../model/recipes';
 import type { Doc } from '../model/schema';
 import { modelSnapshot, savedRecipes } from './context';
 import { SYSTEM_PROMPT } from './prompt';
-import { runTool, toolDefs, type ToolState } from './tools';
+import { runTool, toolDefs, type Question, type ToolState } from './tools';
 
 /**
  * One chat turn: send the request, run tool calls against a draft doc, loop until the model
@@ -15,7 +15,7 @@ import { runTool, toolDefs, type ToolState } from './tools';
 
 export type MessageParam = Anthropic.Beta.BetaMessageParam;
 export type Message = Anthropic.Beta.BetaMessage;
-export type AiRequest = Pick<Anthropic.Beta.MessageCreateParamsNonStreaming, 'system' | 'tools' | 'messages' | 'max_tokens' | 'cache_control'> & { model?: string };
+export type AiRequest = Pick<Anthropic.Beta.MessageCreateParamsNonStreaming, 'system' | 'tools' | 'messages' | 'max_tokens' | 'cache_control'> & { model?: string; effort?: string };
 export type Send = (req: AiRequest, signal?: AbortSignal) => Promise<Message>;
 
 /** Chat state. `messages` is append-only (so prompt caching and replayed thinking stay valid). */
@@ -23,6 +23,8 @@ export interface Chat {
   messages: MessageParam[];
   /** Last snapshot sent, to skip resending an unchanged model. */
   lastSnapshot?: string;
+  /** Results of the turn that ended on ask_user; they open the next user message, with the answers. */
+  toolResults?: Anthropic.Beta.BetaToolResultBlockParam[];
 }
 
 /** A base64 image for the user turn, e.g. a screenshot of the viewport. */
@@ -31,7 +33,7 @@ export interface ImageAttachment {
   data: string;
 }
 
-export type AgentEvent = { type: 'text'; text: string } | { type: 'tool'; name: string; ok: boolean; summary: string };
+export type AgentEvent = { type: 'text'; text: string } | { type: 'tool'; name: string; ok: boolean; summary: string; questions?: Question[] };
 
 export interface TurnResult {
   /** The model's final reply text. */
@@ -39,7 +41,8 @@ export interface TurnResult {
   /** Every op applied this turn, in order. Empty = nothing to preview. */
   ops: Op[];
   draft: Doc;
-  stop: 'done' | 'refusal' | 'max_tokens' | 'max_steps';
+  /** asked: the model put questions to the user (ask_user); the answers go in the next turn. */
+  stop: 'done' | 'asked' | 'refusal' | 'max_tokens' | 'max_steps';
   usage: { input: number; output: number; cacheRead: number; cacheWrite: number };
 }
 
@@ -86,7 +89,10 @@ export async function runTurn(opts: TurnOptions): Promise<TurnResult> {
   const { send, chat, doc, onEvent } = opts;
   const start = chat.messages.length;
   const snapshot = modelSnapshot(doc, savedRecipes(opts.recipes));
-  const content: (Anthropic.Beta.BetaTextBlockParam | Anthropic.Beta.BetaImageBlockParam)[] = [
+  const carried = chat.toolResults ?? [];
+  chat.toolResults = undefined;
+  const content: (Anthropic.Beta.BetaToolResultBlockParam | Anthropic.Beta.BetaTextBlockParam | Anthropic.Beta.BetaImageBlockParam)[] = [
+    ...carried,
     { type: 'text', text: snapshot === chat.lastSnapshot ? '<model unchanged since the last snapshot />' : `<model>\n${snapshot}\n</model>` },
   ];
   if (opts.note) content.push({ type: 'text', text: `<note>${opts.note}</note>` });
@@ -125,16 +131,24 @@ export async function runTurn(opts: TurnOptions): Promise<TurnResult> {
       }
       if (!calls.length) return finish('done');
 
+      let asked = false;
       const results: Anthropic.Beta.BetaToolResultBlockParam[] = calls.map((call) => {
         const out = runTool(state, call.name, call.input);
-        onEvent?.({ type: 'tool', name: call.name, ok: !out.isError, summary: out.summary });
+        asked ||= !!out.questions;
+        onEvent?.({ type: 'tool', name: call.name, ok: !out.isError, summary: out.summary, ...(out.questions && { questions: out.questions }) });
         return { type: 'tool_result', tool_use_id: call.id, content: out.content, ...(out.isError && { is_error: true }) };
       });
+      if (asked) {
+        // The user answers in their own time: the results wait for the next turn's message.
+        chat.toolResults = results;
+        return finish('asked');
+      }
       chat.messages.push({ role: 'user', content: results });
     }
   } catch (err) {
     // Leave the chat as it was before this turn so the user can retry.
     chat.messages.length = start;
+    if (carried.length) chat.toolResults = carried;
     throw err;
   }
 

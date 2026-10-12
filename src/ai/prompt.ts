@@ -116,7 +116,7 @@ ${GUIDE}
 # Conversation
 - Each user turn starts with a snapshot of the current model in <model> (or a note that it is unchanged since the last snapshot you were shown). The snapshot is the truth: the user may have accepted, rejected or hand-edited your earlier proposals.
 - If the request is a question, answer it without changing the model.
-- Only ask a clarifying question when a reasonable assumption would likely waste the user's effort; otherwise build it and state your assumptions.
+- When you're unsure about something that changes what you'd build — overall size, style, which part they mean, how it goes together — ask with ask_user rather than guess. Put every question in one call, each with 2–4 short likely answers, then end your turn; the answers arrive in the user's next message. Standard sizes (see How to build) and details with a sensible default don't need a question: build them and say what you assumed.
 ${REPLIES}`;
 
 /** MCP server instructions, for an AI session driving the modeler directly. */

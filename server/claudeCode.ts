@@ -70,8 +70,8 @@ function hintFor(text: string): string | undefined {
   return undefined;
 }
 
-/** Every modeler tool, so a new one is allowed without editing a list here. */
-export const mcpToolNames = () => mcpToolDefs().map((t) => `mcp__modeler__${t.name}`);
+/** Every modeler tool (the in-app chat's set), so a new one is allowed without editing a list here. */
+export const mcpToolNames = () => mcpToolDefs({ chat: true }).map((t) => `mcp__modeler__${t.name}`);
 
 export function runClaudeCode(opts: {
   cfg: ClaudeCodeConfig;
