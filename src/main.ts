@@ -63,6 +63,7 @@ import { mountPlanView } from './ui/planView';
 import { fmt, units } from './ui/units';
 import { mountVoicePanel } from './ui/voicePanel';
 import { mountReferences } from './ui/references/mount';
+import { mountSidePanel } from './ui/sidePanel';
 
 const byId = (id: string) => {
   const e = document.getElementById(id);
@@ -181,8 +182,11 @@ mountSketchUp({
 });
 mountGltfExport({ slot: top.file, store });
 const outline = mountOutline({ parent: left, stage, store, selection, shown, editBlocked, isolation, startBlocks: () => tools.set('rectangle') });
+// The right panel: the AI chat, and References when it's docked there as a tab.
+const side = mountSidePanel({ parent: right, app, reveal: () => top.showPanel('right') });
+const showChat = () => side.select('ai');
 const chat = mountChatPanel(
-  right,
+  side.chat,
   proposals,
   proxySend,
   (p) => {
@@ -203,7 +207,7 @@ const recipes = mountRecipesPanel({
   editBlocked: () => chat.busy ? 'Wait for the AI to finish before using recipes.' : editBlocked(),
   adaptBlocked: () => chat.recipeAttached ? 'Remove the attached recipe before choosing another.' : null,
   onAdapt: (recipe, inputs) => {
-    top.showPanel('right');
+    showChat();
     chat.attachRecipe(recipe, inputs, selection.targets);
   },
   onInserted: (doc, ids) => {
@@ -212,7 +216,7 @@ const recipes = mountRecipesPanel({
 });
 chat.subscribe(recipes.refresh);
 proposals.subscribe(recipes.refresh);
-const notes = mountNotes({ store, selection, panel: chat, shown, reveal: () => top.showPanel('right') });
+const notes = mountNotes({ store, selection, panel: chat, shown, reveal: showChat });
 connectBridge(proposals);
 
 const setSnapNode = (id: string | null) => {
@@ -394,7 +398,7 @@ mountInspector({
   player,
 });
 const shop = mountShopPanel(stage, { store, selection, shown: modelShown, toolbar: top.tools });
-mountReferences({ toolbar: top.tools });
+mountReferences({ toolbar: top.tools, side });
 const voice = mountVoicePanel(stage, { store, selection, chat, shown, onPins: () => ready && overlay.setPins(pins(shown())) });
 /** Note pins, then voice-note drafts numbered after them. */
 const pins = (doc: Doc) => [...notes.pins(doc), ...voice.pins(doc)];
@@ -432,7 +436,7 @@ viewport.onFrame(() => {
   overlay.setItems(overlayItems(doc, selection));
 });
 const present = mountPresent({
-  slot: top.view, app, stage, container, viewport, store, player,
+  slot: top.modes, app, stage, container, viewport, store, player,
   quiesce: () => {
     blockTool.toggle(false);
     placeTool.stop();
@@ -449,7 +453,7 @@ const present = mountPresent({
 });
 // The 2D plan (Shift+2): the room from above as a sketch, for blocking out a layout.
 const plan = mountPlanView({
-  slot: top.view, stage, store, selection, shown, editBlocked,
+  slot: top.modes, stage, store, selection, shown, editBlocked,
   setPreview: (doc) => {
     dragPreview = doc;
     render();

@@ -1,6 +1,7 @@
 import { el } from '../dom';
 import { icon } from '../icons';
 import { claimKeys } from '../present/keys';
+import type { SidePanel } from '../sidePanel';
 import { fitView, focusView, hit, layoutWall, zoomAt, type Rect, type View } from './layout';
 import { deleteImage, loadImages, saveImage, type RefImage } from './library';
 
@@ -8,12 +9,22 @@ import { deleteImage, loadImages, saveImage, type RefImage } from './library';
  * References (Shift+R): a screen of its own for inspiration photos. Drop picture files on it or
  * paste them (Ctrl+V) and they fall into a photo wall by themselves; drag to pan, wheel to zoom,
  * double-click a picture to zoom to it (double-click the background: everything). The pictures stay
- * in this browser (library.ts). While it's open it owns the keyboard, so tool keys don't fire behind it.
+ * in this browser (library.ts). It opens full screen, owning the keyboard so tool keys don't fire behind
+ * it; Dock moves it into the side panel as a tab beside the AI chat, where it only takes keys and pastes
+ * while it has focus (click it), and stays docked next time.
  */
 
 const CSS = `
 .refs { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; background: var(--canvas); }
 .refs[hidden] { display: none; }
+.refs:not(.docked) .full-btn, .refs.docked .dock-btn { display: none; }
+.refs.docked { position: relative; inset: auto; z-index: auto; flex: 1; min-height: 0; }
+.refs.docked header { height: 40px; padding: 0 4px 0 10px; }
+.refs.docked header h2 { display: none; }
+.refs.docked header .btn .t { display: none; }
+.refs.docked header .btn:not(.icon) { padding: 0 7px; }
+.refs .board:focus { outline: none; }
+.refs.docked .board:focus-visible { box-shadow: inset 0 0 0 2px var(--focus); }
 .refs header { display: flex; align-items: center; gap: 4px; height: 44px; padding: 0 8px 0 16px; background: var(--chrome); border-bottom: 1px solid var(--line); }
 .refs header h2 { margin: 0 10px 0 0; font-size: var(--fs-lg); font-weight: 650; letter-spacing: -.01em; }
 .refs header .hint { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -40,17 +51,23 @@ interface Shown extends RefImage {
 }
 
 export interface References {
+  /** Full screen when closed, closed when full screen; docked: shows its tab, or the chat if it's already showing. */
   toggle(open?: boolean): void;
   readonly open: boolean;
 }
 
-export function mountReferences(o: { toolbar: HTMLElement; parent?: HTMLElement }): References {
+type Mode = 'closed' | 'full' | 'docked';
+const DOCKED_KEY = 'new-modeler.refs-docked';
+
+export function mountReferences(o: { toolbar: HTMLElement; parent?: HTMLElement; side?: SidePanel }): References {
   const parent = o.parent ?? document.body;
   const fileInput = el('input', { type: 'file', accept: 'image/*', multiple: true, hidden: true });
   const addBtn = el('button', { class: 'btn ghost', title: 'Add pictures from files' }, icon('plus'), el('span', { class: 't' }, 'Add pictures…'));
   const fitBtn = el('button', { class: 'btn ghost', title: 'Show every picture (F, or double-click the background)' }, icon('extents'), el('span', { class: 't' }, 'Fit'));
   const zoomLbl = el('span', { class: 'zoom' });
   const closeBtn = el('button', { class: 'btn ghost icon', title: 'Back to the model (Esc)' }, icon('x'));
+  const dockBtn = el('button', { class: 'btn ghost dock-btn', title: 'Dock as a tab in the side panel, beside the AI chat' }, icon('panelRight'), el('span', { class: 't' }, 'Dock'));
+  const fullBtn = el('button', { class: 'btn ghost icon full-btn', title: 'Full screen' }, icon('maximize'));
   const hint = el('span', { class: 'hint' });
   const world = el('div', { class: 'world' });
   const empty = el(
@@ -59,12 +76,12 @@ export function mountReferences(o: { toolbar: HTMLElement; parent?: HTMLElement 
     el('b', {}, 'Drop pictures here, or paste them (Ctrl+V)'),
     el('span', {}, 'They line up on their own. Drag to move around, scroll to zoom.'),
   );
-  const board = el('div', { class: 'board' }, world, empty, el('div', { class: 'drop' }, 'Drop to add'));
+  const board = el('div', { class: 'board', tabindex: '0' }, world, empty, el('div', { class: 'drop' }, 'Drop to add'));
   const screen = el(
     'div',
     { class: 'refs', role: 'dialog', 'aria-label': 'References' },
     el('style', {}, CSS),
-    el('header', {}, el('h2', {}, 'References'), hint, addBtn, fitBtn, zoomLbl, closeBtn),
+    el('header', {}, el('h2', {}, 'References'), hint, addBtn, fitBtn, zoomLbl, ...(o.side ? [dockBtn, fullBtn] : []), closeBtn),
     board,
     fileInput,
   );
@@ -74,7 +91,7 @@ export function mountReferences(o: { toolbar: HTMLElement; parent?: HTMLElement 
   const toolbarBtn = el('button', { class: 'btn ghost', title: 'References: a wall of inspiration photos (Shift+R)', 'aria-pressed': 'false' }, icon('image'), el('span', { class: 't' }, 'References'));
   o.toolbar.append(toolbarBtn);
 
-  let open = false;
+  let mode: Mode = 'closed';
   let images: Shown[] = [];
   let rects: Rect[] = [];
   let view: View = { x: 0, y: 0, scale: 1 };
@@ -226,6 +243,7 @@ export function mountReferences(o: { toolbar: HTMLElement; parent?: HTMLElement 
   };
   board.addEventListener('pointerdown', (e) => {
     if (drag) return;
+    board.focus({ preventScroll: true });
     board.setPointerCapture(e.pointerId);
     drag = { id: e.pointerId, x: e.clientX, y: e.clientY, vx: view.x, vy: view.y, moved: false };
     e.preventDefault();
@@ -294,7 +312,8 @@ export function mountReferences(o: { toolbar: HTMLElement; parent?: HTMLElement 
     void fromTransfer(e.dataTransfer);
   });
   window.addEventListener('paste', (e) => {
-    if (!open) return;
+    // Docked, the chat beside it takes its own pastes: only a paste while the wall has focus is a picture for it.
+    if (mode === 'closed' || (mode === 'docked' && !screen.contains(document.activeElement))) return;
     e.preventDefault();
     void fromTransfer(e.clipboardData);
   });
@@ -305,9 +324,11 @@ export function mountReferences(o: { toolbar: HTMLElement; parent?: HTMLElement 
     void add(files.map((f) => ({ blob: f, name: f.name })));
   });
   fitBtn.addEventListener('click', fit);
-  closeBtn.addEventListener('click', () => toggle(false));
+  closeBtn.addEventListener('click', () => setMode('closed'));
+  dockBtn.addEventListener('click', () => setMode('docked'));
+  fullBtn.addEventListener('click', () => setMode('full'));
   toolbarBtn.addEventListener('click', () => toggle());
-  window.addEventListener('resize', () => open && relayout());
+  new ResizeObserver(() => mode !== 'closed' && board.clientWidth > 0 && relayout()).observe(board);
 
   // ── Keys ─────────────────────────────────────────────────────────────────
   const keydown = (e: KeyboardEvent): boolean => {
@@ -317,10 +338,11 @@ export function mountReferences(o: { toolbar: HTMLElement; parent?: HTMLElement 
       if (selected) {
         selected = null;
         relayout();
-      } else toggle(false);
+      } else if (mode === 'docked') board.blur();
+      else setMode('closed');
       return true;
     }
-    if (k === 'r' && e.shiftKey) return (toggle(false), true);
+    if (k === 'r' && e.shiftKey) return (toggle(), true);
     if ((k === 'delete' || k === 'backspace') && selected) return (remove(selected), true);
     if (k === 'f' || k === 'home' || k === '0') return (fit(), true);
     const s = size();
@@ -328,23 +350,64 @@ export function mountReferences(o: { toolbar: HTMLElement; parent?: HTMLElement 
     if (k === '-' || k === '_') return (setView(zoomAt(view, 0.8, s.w / 2, s.h / 2)), true);
     return false;
   };
+  // Docked, the wall owns the keyboard only while it has focus (click it); the tools behind don't see those keys.
+  board.addEventListener('focus', () => {
+    if (mode === 'docked' && !release) release = claimKeys({ keydown });
+  });
+  board.addEventListener('blur', () => {
+    if (mode !== 'docked') return;
+    release?.();
+    release = null;
+  });
   window.addEventListener('keydown', (e) => {
     const t = e.target as HTMLElement;
-    if (open || t.closest('input, select, textarea, [contenteditable]') || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (mode === 'full' || screen.contains(t) || t.closest('input, select, textarea, [contenteditable]') || e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.shiftKey && e.key.toLowerCase() === 'r') {
-      toggle(true);
+      toggle();
       e.preventDefault();
     }
   });
 
+  const showing = () => screen.getClientRects().length > 0;
+  function toggle(next?: boolean) {
+    if (mode === 'docked' && o.side) {
+      if (next === false) return setMode('closed');
+      // Docked: the button flips the side panel between References and the chat.
+      const to = next || o.side.active !== 'refs' || !showing() ? 'refs' : 'ai';
+      if (to === 'ai') board.blur();
+      o.side.select(to);
+      return;
+    }
+    setMode((next ?? mode === 'closed') ? 'full' : 'closed');
+  }
+
   let loaded = false;
-  function toggle(next = !open) {
-    if (next === open) return;
-    open = next;
-    screen.hidden = !open;
-    toolbarBtn.setAttribute('aria-pressed', String(open));
-    if (open) {
-      release = claimKeys({ keydown });
+  function setMode(next: Mode, reveal = true) {
+    if (next === mode) return;
+    if (next === 'docked' && !o.side) next = 'full';
+    const was = mode;
+    mode = next;
+    release?.();
+    release = null;
+    if (was === 'docked') o.side?.remove('refs');
+    drag = null;
+    screen.classList.toggle('docked', mode === 'docked');
+    toolbarBtn.setAttribute('aria-pressed', String(mode !== 'closed'));
+    try {
+      if (mode === 'docked') localStorage.setItem(DOCKED_KEY, '1');
+      else localStorage.removeItem(DOCKED_KEY);
+    } catch {
+      // storage unavailable: it opens full screen next time
+    }
+    if (mode === 'docked') {
+      screen.hidden = false;
+      o.side?.add({ id: 'refs', label: 'References', icon: 'image', pane: screen, onClose: () => setMode('closed') }, reveal);
+    } else {
+      if (screen.parentElement !== parent) parent.append(screen);
+      screen.hidden = mode === 'closed';
+    }
+    if (mode === 'full') release = claimKeys({ keydown });
+    if (mode !== 'closed') {
       fitted = true;
       relayout();
       if (!loaded) {
@@ -356,18 +419,21 @@ export function mountReferences(o: { toolbar: HTMLElement; parent?: HTMLElement 
           relayout();
         });
       }
-    } else {
-      release?.();
-      release = null;
-      drag = null;
     }
   }
 
   syncHint();
+  try {
+    if (o.side && localStorage.getItem(DOCKED_KEY)) {
+      setMode('docked', false);
+    }
+  } catch {
+    // storage unavailable: it starts closed
+  }
   return {
     toggle,
     get open() {
-      return open;
+      return mode !== 'closed';
     },
   };
 }

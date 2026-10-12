@@ -7,23 +7,37 @@ import { toast } from './toast';
 import { units } from './units';
 
 /**
- * The top bar: file (new / open / save, plus what other modules add: SketchUp import / export), undo / redo,
- * how the model is shown (dimension lines D, open / close Shift+O, inches ⇄ mm U), the tools other panels add
- * (cut list), the keyboard list (?) and the side-panel toggles. View settings are
- * per-browser preferences, not model data.
+ * The top bar, left to right: the model-list toggle, the File menu (new / open / save, plus what other
+ * modules add: SketchUp and glTF import / export), undo / redo and the drawing tools (room, props); then
+ * how the model is shown (dimension lines D, open / close Shift+O, inches ⇄ mm U), the modes (2D plan,
+ * Present), the panels other modules add (recipes, cut list, references), the keyboard list (?) and the
+ * side-panel toggle. View settings are per-browser preferences, not model data.
  */
 
 const CSS = `
-#topbar { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 12px;
+#topbar { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 0 8px; background: var(--chrome); border-bottom: 1px solid var(--line); }
 #topbar .side { display: flex; align-items: center; gap: 2px; min-width: 0; }
-#topbar .side.r { justify-content: flex-end; }
-#topbar .mid { display: flex; align-items: center; gap: 8px; }
-#topbar .mark { padding: 0 10px 0 6px; font-weight: 650; letter-spacing: -.01em; white-space: nowrap; }
+#topbar .mark { padding: 0 8px 0 6px; font-weight: 650; letter-spacing: -.01em; white-space: nowrap; }
 #topbar .sep { flex: none; width: 1px; height: 18px; margin: 0 6px; background: var(--line-2); }
 #topbar .tools { display: flex; align-items: center; gap: 2px; }
+#topbar .seg.units { margin-left: 4px; }
 #topbar .seg.units button { padding: 0 8px; }
-@media (max-width: 1320px) { #topbar .side.r .btn .t { display: none; } #topbar .side.r .btn:not(.icon) { padding: 0 7px; } }
+#topbar .dd { position: relative; }
+#topbar .dd > .btn .caret { width: 12px; height: 12px; margin-left: -2px; transform: rotate(90deg); opacity: .7; }
+#topbar .menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 60; display: grid; min-width: 232px; padding: 4px;
+  background: var(--raised); border: 1px solid var(--line-2); border-radius: 8px; box-shadow: 0 10px 30px #0008; }
+#topbar .menu[hidden] { display: none; }
+#topbar .menu .tools { display: contents; }
+#topbar .menu button { display: flex; align-items: center; justify-content: flex-start; gap: 8px; width: 100%; height: 30px; padding: 0 10px;
+  border: 0; border-radius: 6px; background: none; color: var(--fg); font-size: var(--fs); font-weight: 400; text-align: left; cursor: pointer; }
+#topbar .menu button:hover:not(:disabled), #topbar .menu button:focus-visible { background: var(--hover); outline: none; }
+#topbar .menu button .k { margin-left: auto; padding-left: 16px; color: var(--fg-3); font-size: var(--fs-sm); }
+#topbar .menu .msep { height: 1px; margin: 4px 6px; background: var(--line-2); }
+#topbar .menu .mlbl { padding: 6px 10px 2px; color: var(--fg-3); font-size: var(--fs-xs); }
+@media (max-width: 1440px) { #topbar .shows .btn .t { display: none; } #topbar .shows .btn:not(.icon) { padding: 0 7px; } }
+@media (max-width: 1240px) { #topbar .side.r .tools .btn .t { display: none; } #topbar .side.r .tools .btn:not(.icon) { padding: 0 7px; } }
+@media (max-width: 1000px) { #topbar .side .tools .btn .t { display: none; } #topbar .side .tools .btn:not(.icon) { padding: 0 7px; } }
 .help { top: 48px; right: 8px; width: 400px; max-height: calc(100vh - 64px); overflow-y: auto; font-size: var(--fs-sm); }
 .help h4 { margin: 10px 0 4px; font-size: var(--fs-sm); color: var(--fg-2); font-weight: 600; }
 .help h4:first-child { margin-top: 0; }
@@ -152,14 +166,16 @@ export interface TopBarOptions {
 }
 
 export interface TopBar {
-  /** Where file actions add their buttons, after Save (SketchUp import / export). */
+  /** Where file actions add their buttons: the File menu, after Save (SketchUp import / export, glTF). */
   file: HTMLElement;
   /** Where tools add their buttons (cut list). */
   tools: HTMLElement;
-  /** Where drawing tools add their buttons, in the middle of the bar (blocks). */
+  /** Where drawing tools add their buttons, after undo / redo (room, props). */
   draw: HTMLElement;
   /** Where view toggles add their buttons, beside Dims (open / close). */
   view: HTMLElement;
+  /** Where whole-screen modes add their buttons (2D plan, Present). */
+  modes: HTMLElement;
   /** Shows a side panel if it's hidden. */
   showPanel(side: 'left' | 'right'): void;
   /** Show dimension lines. */
@@ -200,9 +216,10 @@ export function mountTopBar(o: TopBarOptions): TopBar {
   rightBtn.addEventListener('click', () => togglePanel('right'));
 
   // ── File and history ─────────────────────────────────────────────────────
-  const newBtn = button('ghost', 'Start an empty model (undo brings this one back)', 'New');
-  const openBtn = button('ghost', 'Open a saved model file', 'Open…');
-  const saveBtn = button('ghost', 'Download the model as a file', 'Save');
+  const item = (title: string, label: string, key?: string) => el('button', { type: 'button', role: 'menuitem', title }, label, ...(key ? [el('span', { class: 'k' }, key)] : []));
+  const newBtn = item('Start an empty model (undo brings this one back)', 'New model');
+  const openBtn = item('Open a saved model file', 'Open…', 'Ctrl+O');
+  const saveBtn = item('Download the model as a file', 'Save', 'Ctrl+S');
   const undoBtn = button('ghost icon', 'Undo (Ctrl+Z)', icon('undo'));
   const redoBtn = button('ghost icon', 'Redo (Ctrl+Shift+Z)', icon('redo'));
   newBtn.addEventListener('click', () => {
@@ -218,7 +235,8 @@ export function mountTopBar(o: TopBarOptions): TopBar {
       toast(`Couldn't open that file: ${(err as Error).message}`, true);
     }
   });
-  saveBtn.addEventListener('click', () => downloadFile(store.doc));
+  const saveModel = () => downloadFile(store.doc);
+  saveBtn.addEventListener('click', saveModel);
   undoBtn.addEventListener('click', () => store.undo());
   redoBtn.addEventListener('click', () => store.redo());
   const syncHistory = () => {
@@ -252,6 +270,37 @@ export function mountTopBar(o: TopBarOptions): TopBar {
     emit();
   });
 
+  // ── File menu ────────────────────────────────────────────────────────────
+  const file = el('div', { class: 'tools' });
+  const fileBtn = button('ghost', 'New, open, save, import and export', 'File', icon('chevron', 'caret'));
+  fileBtn.setAttribute('aria-haspopup', 'menu');
+  fileBtn.setAttribute('aria-expanded', 'false');
+  const fileMenu = el('div', { class: 'menu', role: 'menu', 'aria-label': 'File' }, newBtn, openBtn, saveBtn, el('div', { class: 'msep' }), el('div', { class: 'mlbl' }, 'Other apps'), file);
+  fileMenu.hidden = true;
+  const fileDd = el('div', { class: 'dd' }, fileBtn, fileMenu);
+  const menuItems = () => [...fileMenu.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')];
+  const toggleFile = (show = fileMenu.hidden, focusFirst = false) => {
+    fileMenu.hidden = !show;
+    fileBtn.setAttribute('aria-expanded', String(show));
+    fileBtn.setAttribute('aria-pressed', String(show));
+    if (show && focusFirst) menuItems()[0]?.focus();
+  };
+  fileBtn.addEventListener('click', (e) => toggleFile(fileMenu.hidden, e.detail === 0));
+  // Any item closes the menu (its own click handler still runs).
+  fileMenu.addEventListener('click', (e) => (e.target as HTMLElement).closest('button') && toggleFile(false));
+  fileMenu.addEventListener('keydown', (e) => {
+    const items = menuItems();
+    const i = items.indexOf(document.activeElement as HTMLButtonElement);
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') items[(i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus();
+    else if (e.key === 'Escape') (toggleFile(false), fileBtn.focus());
+    else return;
+    e.preventDefault();
+    e.stopPropagation();
+  });
+  window.addEventListener('pointerdown', (e) => {
+    if (!fileMenu.hidden && !fileDd.contains(e.target as Node)) toggleFile(false);
+  });
+
   // ── Keyboard list ────────────────────────────────────────────────────────
   const helpBtn = button('ghost icon', 'Keyboard shortcuts (?)', icon('help'));
   const help = el(
@@ -276,19 +325,19 @@ export function mountTopBar(o: TopBarOptions): TopBar {
     if (!help.hidden && !help.contains(e.target as Node) && !helpBtn.contains(e.target as Node)) toggleHelp(false);
   });
 
-  const file = el('div', { class: 'tools' });
   const tools = el('div', { class: 'tools' });
   const draw = el('div', { class: 'tools' });
   const view = el('div', { class: 'tools' });
+  const modes = el('div', { class: 'tools' });
   bar.append(
-    el('div', { class: 'side' }, leftBtn, el('span', { class: 'mark' }, 'Modeler'), newBtn, openBtn, saveBtn, file, el('div', { class: 'sep' }), undoBtn, redoBtn),
-    el('div', { class: 'mid' }, draw),
+    el('div', { class: 'side' }, leftBtn, el('span', { class: 'mark' }, 'Modeler'), fileDd, el('div', { class: 'sep' }), undoBtn, redoBtn, el('div', { class: 'sep' }), draw),
     el(
       'div',
       { class: 'side r' },
-      dimsBtn,
-      view,
+      el('div', { class: 'tools shows' }, dimsBtn, view),
       el('div', { class: 'seg units', role: 'group', 'aria-label': 'Units' }, inBtn, mmBtn),
+      el('div', { class: 'sep' }),
+      modes,
       el('div', { class: 'sep' }),
       tools,
       el('div', { class: 'sep' }),
@@ -300,9 +349,17 @@ export function mountTopBar(o: TopBarOptions): TopBar {
 
   window.addEventListener('keydown', (e) => {
     const t = e.target as HTMLElement;
-    if (t.closest('input, select, textarea') || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.altKey) return;
     const k = e.key.toLowerCase();
-    if (k === 'd') toggleDims();
+    // Ctrl+S / Ctrl+O: save and open, as in any app (even from a text box, so the browser's own dialogs never show).
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (k === 's' || k === 'o')) {
+      e.preventDefault();
+      (k === 's' ? saveBtn : openBtn).click();
+      return;
+    }
+    if (t.closest('input, select, textarea') || e.ctrlKey || e.metaKey) return;
+    if (k === 'escape' && !fileMenu.hidden) toggleFile(false);
+    else if (k === 'd') toggleDims();
     else if (k === 'u') toggleUnits();
     else if (k === '?') toggleHelp();
     else if (k === 'escape' && !help.hidden) toggleHelp(false);
@@ -318,6 +375,7 @@ export function mountTopBar(o: TopBarOptions): TopBar {
     tools,
     draw,
     view,
+    modes,
     showPanel: (side) => void (panels[side] || togglePanel(side)),
     get dims() {
       return dims;

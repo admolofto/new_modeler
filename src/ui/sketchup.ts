@@ -24,9 +24,9 @@ export function mountSketchUp(o: SketchUpOptions): void {
   const importBtn = el(
     'button',
     { class: 'btn ghost', title: 'Add a SketchUp model as editable parts. In SketchUp: File › Export › 3D Model, type COLLADA (.dae)' },
-    'Import…',
+    'Import SketchUp (.dae)…',
   );
-  const exportBtn = el('button', { class: 'btn ghost', title: 'Download the model for SketchUp (.dae). In SketchUp: File › Import' }, 'Export');
+  const exportBtn = el('button', { class: 'btn ghost', title: 'Download the model for SketchUp (.dae). In SketchUp: File › Import' }, 'Export for SketchUp (.dae)');
   o.slot.append(importBtn, exportBtn);
 
   importBtn.addEventListener('click', async () => {
