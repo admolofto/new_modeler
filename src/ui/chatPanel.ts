@@ -8,6 +8,7 @@ import type { Target } from '../edit/targets';
 import { createRecipeAdaptation } from './recipeAdaptation';
 import { el } from './dom';
 import { icon } from './icons';
+import { MARKDOWN_STYLE, renderMarkdown } from './markdown';
 import { mountAiHelp } from './aiHelp';
 import type { Proposals } from './proposals';
 
@@ -140,7 +141,7 @@ export function mountChatPanel(
   /** What the picture of the view shows that the model doesn't (doors drawn open), or null. */
   viewNote?: () => string | null,
 ): ChatPanel {
-  parent.append(el('style', {}, STYLE));
+  parent.append(el('style', {}, STYLE + MARKDOWN_STYLE));
   let engine: Engine = loadEngine() ?? 'claude-code';
   let config: EngineConfig | null = null;
   const savedModels: Partial<Record<Engine, string>> = (() => {
@@ -242,7 +243,7 @@ export function mountChatPanel(
   const scroll = () => (chatView.scrollTop = chatView.scrollHeight);
   const add = (cls: string, text: string) => {
     log.querySelector('.welcome')?.remove();
-    log.insertBefore(el('div', { class: `msg ${cls}` }, text), working.parentNode === log ? working : null);
+    log.insertBefore(el('div', { class: `msg ${cls}` }, cls === 'ai' ? renderMarkdown(text) : text), working.parentNode === log ? working : null);
     scroll();
   };
 
