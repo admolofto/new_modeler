@@ -49,11 +49,22 @@ export function installModalKeys(target: Pick<Window, 'addEventListener'> = wind
   target.addEventListener('keyup', route, { capture: true });
 }
 
-/** Takes the keyboard until the returned release is called (one owner at a time: the latest wins). */
+/** Owners under the current one, which get the keyboard back as the ones above them let go. */
+const below: KeyOwnerSet[] = [];
+
+/**
+ * Takes the keyboard until the returned release is called (one owner at a time: the latest wins, and
+ * releasing hands it back to the owner before, so a screen opened over the 2D plan returns it there).
+ */
 export function claimKeys(own: KeyOwnerSet): () => void {
+  if (owner) below.push(owner);
   owner = own;
   return () => {
-    if (owner === own) owner = null;
+    if (owner === own) owner = below.pop() ?? null;
+    else {
+      const i = below.indexOf(own);
+      if (i >= 0) below.splice(i, 1);
+    }
   };
 }
 

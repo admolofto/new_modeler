@@ -88,6 +88,22 @@ describe('modal keys', () => {
     r2();
     expect(keysClaimed()).toBe(false);
   });
+
+  it('a screen opened over another gives the keyboard back to it when it closes', () => {
+    const under = claimKeys(owner);
+    const over = claimKeys({ keydown: () => false });
+    over();
+    expect(keysClaimed()).toBe(true);
+    under();
+    expect(keysClaimed()).toBe(false);
+    // Let go in the other order: the one above keeps it.
+    const a = claimKeys(owner);
+    const b = claimKeys({ keydown: () => false });
+    a();
+    expect(keysClaimed()).toBe(true);
+    b();
+    expect(keysClaimed()).toBe(false);
+  });
 });
 
 describe('presentation keys', () => {

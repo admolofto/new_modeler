@@ -62,6 +62,7 @@ import { mountPresent } from './ui/present/mount';
 import { mountPlanView } from './ui/planView';
 import { fmt, units } from './ui/units';
 import { mountVoicePanel } from './ui/voicePanel';
+import { mountReferences } from './ui/references/mount';
 
 const byId = (id: string) => {
   const e = document.getElementById(id);
@@ -393,6 +394,7 @@ mountInspector({
   player,
 });
 const shop = mountShopPanel(stage, { store, selection, shown: modelShown, toolbar: top.tools });
+mountReferences({ toolbar: top.tools });
 const voice = mountVoicePanel(stage, { store, selection, chat, shown, onPins: () => ready && overlay.setPins(pins(shown())) });
 /** Note pins, then voice-note drafts numbered after them. */
 const pins = (doc: Doc) => [...notes.pins(doc), ...voice.pins(doc)];
