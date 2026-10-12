@@ -6,7 +6,7 @@ import type { Doc } from '../model/schema';
 import { inches } from '../model/units';
 import { newChat, runTurn, type Message, type Send } from './agent';
 import { modelSnapshot } from './context';
-import { normalizeLengths, runTool, toolDefs } from './tools';
+import { mcpToolDefs, normalizeLengths, runTool, TOOL_ASK, toolDefs } from './tools';
 import { overlaps, worldBoxes } from '../model/world';
 
 function ok(doc: Doc, ops: Op[]): Doc {
@@ -121,6 +121,24 @@ describe('runTool', () => {
   });
 });
 
+describe('ask_user', () => {
+  it('returns the questions for the chat and tells the model to wait for the answers', () => {
+    const out = runTool({ draft: emptyDoc(), ops: [] }, TOOL_ASK, { questions: [{ question: ' Overlay or inset doors? ', options: ['Overlay', 'Inset'] }] });
+    expect(out).toMatchObject({ isError: false, summary: 'asked 1 question', questions: [{ question: 'Overlay or inset doors?', options: ['Overlay', 'Inset'] }] });
+    expect(out.content).toMatch(/End your turn/);
+  });
+  it('rejects empty or oversized question lists', () => {
+    for (const input of [{}, { questions: [] }, { questions: [{ question: '' }] }, { questions: Array.from({ length: 5 }, () => ({ question: 'Why?' })) }, { questions: [{ question: 'Pick', options: ['a', 'b', 'c', 'd', 'e'] }] }]) {
+      expect(runTool({ draft: emptyDoc(), ops: [] }, TOOL_ASK, input)).toMatchObject({ isError: true, summary: '✗ questions rejected' });
+    }
+  });
+  it('is offered to the in-app chat only, not to outside MCP clients', () => {
+    expect(toolDefs().map((t) => t.name)).toContain(TOOL_ASK);
+    expect(mcpToolDefs({ chat: true }).map((t) => t.name)).toContain(TOOL_ASK);
+    expect(mcpToolDefs().map((t) => t.name)).not.toContain(TOOL_ASK);
+  });
+});
+
 describe('world bounds', () => {
   it('composes nested transforms and 90° rotations', () => {
     const d = ok(emptyDoc(), [
@@ -188,6 +206,36 @@ describe('runTurn', () => {
     const { send } = scripted([reply([toolCall('t', { ops: [panel('p')] })], 'tool_use')]);
     await expect(runTurn({ send, chat, doc: emptyDoc(), text: 'go' })).rejects.toThrow(/no more scripted/);
     expect(chat.messages).toEqual([]);
+  });
+
+  it('ends the turn on ask_user and sends its results with the answers', async () => {
+    const chat = newChat();
+    const questions = [{ question: 'How deep?', options: ['12"', '24"'] }, { question: 'Doors or drawers?' }];
+    const first = scripted([reply([say('A couple of questions first.'), { type: 'tool_use', id: 'q1', name: TOOL_ASK, input: { questions } } as unknown as Message['content'][number]], 'tool_use')]);
+    const events: unknown[] = [];
+    const r = await runTurn({ send: first.send, chat, doc: emptyDoc(), text: 'build a cabinet', onEvent: (e) => events.push(e) });
+    expect(r.stop).toBe('asked');
+    expect(first.requests).toHaveLength(1); // no second request while the user answers
+    expect(events.at(-1)).toMatchObject({ type: 'tool', name: TOOL_ASK, ok: true, questions });
+    expect(chat.messages.map((m) => m.role)).toEqual(['user', 'assistant']);
+
+    // The waiting tool result opens the next user message, ahead of the answers.
+    const second = scripted([reply([say('Building it 24" deep with doors.')])]);
+    await runTurn({ send: second.send, chat, doc: emptyDoc(), text: 'How deep? → 24"' });
+    const content = second.requests[0]!.messages.at(-1)!.content as { type: string; tool_use_id?: string; text?: string }[];
+    expect(content[0]).toMatchObject({ type: 'tool_result', tool_use_id: 'q1' });
+    expect(content.at(-1)).toMatchObject({ type: 'text', text: 'How deep? → 24"' });
+    expect(chat.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'user', 'assistant']);
+    expect(chat.toolResults).toBeUndefined();
+  });
+
+  it('keeps ask_user results waiting when the answering turn fails', async () => {
+    const chat = newChat();
+    const ask = { type: 'tool_use', id: 'q1', name: TOOL_ASK, input: { questions: [{ question: 'Which side?' }] } } as unknown as Message['content'][number];
+    await runTurn({ send: scripted([reply([ask], 'tool_use')]).send, chat, doc: emptyDoc(), text: 'add a door' });
+    await expect(runTurn({ send: scripted([]).send, chat, doc: emptyDoc(), text: 'left' })).rejects.toThrow(/no more scripted/);
+    expect(chat.messages).toHaveLength(2);
+    expect(chat.toolResults?.[0]).toMatchObject({ tool_use_id: 'q1' });
   });
 
   it('drops a tool call truncated by max_tokens', async () => {

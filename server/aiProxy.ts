@@ -11,15 +11,15 @@ import { claudeCodeConfig, claudeCodeVersion, runClaudeCode, runClaudeOnce, TIDY
 import { createMcpHandler } from './mcp.ts';
 import type { ToolCaller } from './mcp.ts';
 import { codexConfig, codexModels, codexStatus, runCodex } from './codex.ts';
-import { requestedModel } from '../src/ai/models.ts';
+import { CLAUDE_EFFORTS, requestedEffort, requestedModel, type Effort } from '../src/ai/models.ts';
 
 /**
  * AI endpoints on the Vite dev server (localhost only):
  *   /mcp                      MCP server; tools run in the open modeler tab
  *   GET  /api/ai/config       which engines are available
  *   POST /api/ai/messages     API engine: an AiRequest in, the final Claude message out (needs ANTHROPIC_API_KEY)
- *   POST /api/ai/claude-code  Claude Code engine: { prompt, sessionId? } in, NDJSON events out (uses your Claude Code login)
- *   POST /api/ai/codex        Codex engine: { prompt, sessionId?, images? } in, NDJSON events out (uses your Codex login)
+ *   POST /api/ai/claude-code  Claude Code engine: { prompt, sessionId?, images?, model?, effort? } in, NDJSON events out (uses your Claude Code login)
+ *   POST /api/ai/codex        Codex engine: { prompt, sessionId?, images?, model?, effort? } in, NDJSON events out (uses your Codex login)
  *   POST /api/ai/tidy-notes   { engine?, input: TidyInput } in, { notes } out: cleans up dictated voice notes (src/ai/tidy.ts)
  * Keys and credentials stay in Node; nothing secret reaches the browser.
  */
@@ -65,11 +65,13 @@ export function aiProxy(env: Record<string, string | undefined>): Plugin {
   async function messages(req: IncomingMessage, res: ServerResponse) {
     let body: AiRequest;
     let model: string | undefined;
+    let effort: Effort | undefined;
     try {
       const raw = (await readJson(req)) as Partial<AiRequest>;
-      model = requestedModel((raw as Record<string, unknown>).model);
+      model = requestedModel(raw.model);
+      effort = requestedEffort(raw.effort, CLAUDE_EFFORTS) as Effort | undefined;
       if (!Array.isArray(raw.messages) || typeof raw.max_tokens !== 'number') throw new Error('expected messages and max_tokens');
-      // Only the fields the app uses; model names are validated and options remain server-side.
+      // Only the fields the app uses; model and effort are validated and other options remain server-side.
       body = { messages: raw.messages, max_tokens: raw.max_tokens, system: raw.system, tools: raw.tools, cache_control: raw.cache_control };
     } catch (err) {
       return json(res, 400, { error: { message: `bad request: ${(err as Error).message}` } });
@@ -77,7 +79,7 @@ export function aiProxy(env: Record<string, string | undefined>): Plugin {
     const abort = abortOnClose(res);
     try {
       client ??= claudeClient(env);
-      json(res, 200, await createMessage(client, { ...cfg, ...(model && { model }) }, body, abort.signal));
+      json(res, 200, await createMessage(client, { ...cfg, ...(model && { model }), ...(effort && { effort }) }, body, abort.signal));
     } catch (err) {
       if (abort.signal.aborted) return;
       if (err instanceof Anthropic.APIError) {
@@ -99,11 +101,14 @@ export function aiProxy(env: Record<string, string | undefined>): Plugin {
   };
 
   async function claudeCode(server: ViteDevServer, req: IncomingMessage, res: ServerResponse) {
-    let body: { prompt: string; sessionId?: string; images: ImageAttachment[]; model?: string };
+    let body: { prompt: string; sessionId?: string; images: ImageAttachment[]; model?: string; effort?: string };
     try {
       const raw = await readJson(req);
       if (typeof raw.prompt !== 'string' || !raw.prompt) throw new Error('expected prompt');
-      body = { prompt: raw.prompt, images: parseImages(raw.images), model: requestedModel(raw.model), ...(typeof raw.sessionId === 'string' && { sessionId: raw.sessionId }) };
+      body = {
+        prompt: raw.prompt, images: parseImages(raw.images), model: requestedModel(raw.model), effort: requestedEffort(raw.effort, CLAUDE_EFFORTS),
+        ...(typeof raw.sessionId === 'string' && { sessionId: raw.sessionId }),
+      };
     } catch (err) {
       return json(res, 400, { error: { message: `bad request: ${(err as Error).message}` } });
     }
@@ -115,11 +120,11 @@ export function aiProxy(env: Record<string, string | undefined>): Plugin {
     const emit = (e: unknown) => res.write(`${JSON.stringify(e)}\n`);
     try {
       const result = await runClaudeCode({
-        cfg: { ...ccCfg, ...(body.model && { model: body.model }) },
+        cfg: { ...ccCfg, ...(body.model && { model: body.model }), ...(body.effort && { effort: body.effort }) },
         prompt: body.prompt,
         images: body.images,
         sessionId: body.sessionId,
-        mcpUrl: new URL('/mcp', base).href,
+        mcpUrl: new URL('/mcp?chat', base).href,
         signal: abort.signal,
         onEvent: emit,
       });
@@ -131,11 +136,15 @@ export function aiProxy(env: Record<string, string | undefined>): Plugin {
   }
 
   async function codex(call: ToolCaller, req: IncomingMessage, res: ServerResponse) {
-    let body: { prompt: string; sessionId?: string; images: ImageAttachment[]; model?: string };
+    let body: { prompt: string; sessionId?: string; images: ImageAttachment[]; model?: string; effort?: string };
     try {
       const raw = await readJson(req);
       if (typeof raw.prompt !== 'string' || !raw.prompt.trim()) throw new Error('expected prompt');
-      body = { prompt: raw.prompt, images: parseImages(raw.images), model: requestedModel(raw.model), ...(typeof raw.sessionId === 'string' && { sessionId: raw.sessionId }) };
+      // Codex checks the effort against the model's own levels.
+      body = {
+        prompt: raw.prompt, images: parseImages(raw.images), model: requestedModel(raw.model), effort: requestedEffort(raw.effort),
+        ...(typeof raw.sessionId === 'string' && { sessionId: raw.sessionId }),
+      };
     } catch (err) {
       return json(res, 400, { error: { message: `bad request: ${(err as Error).message}` } });
     }
@@ -144,7 +153,8 @@ export function aiProxy(env: Record<string, string | undefined>): Plugin {
     res.setHeader('content-type', 'application/x-ndjson');
     const emit = (event: unknown) => { if (!res.destroyed) res.write(`${JSON.stringify(event)}\n`); };
     try {
-      const result = await runCodex({ ...body, cfg: { ...cxCfg(), ...(body.model && { model: body.model }) }, call, signal: abort.signal, onEvent: emit });
+      const { model, effort, ...turn } = body;
+      const result = await runCodex({ ...turn, cfg: { ...cxCfg(), ...(model && { model }), ...(effort && { effort }) }, call, signal: abort.signal, onEvent: emit });
       emit({ type: 'done', ...result });
     } catch (err) {
       if (!abort.signal.aborted) emit({ type: 'error', message: (err as Error).message });
@@ -230,7 +240,7 @@ export function aiProxy(env: Record<string, string | undefined>): Plugin {
           void Promise.all([ccVersion, codexStatus(cxCfg())]).then(([version, codex]) =>
             json(res, 200, {
               api: { ...cfg, hasKey: !!env.ANTHROPIC_API_KEY },
-              claudeCode: { available: version !== null, version, model: ccCfg.model ?? 'default' },
+              claudeCode: { available: version !== null, version, model: ccCfg.model ?? 'default', ...(ccCfg.effort && { effort: ccCfg.effort }) },
               codex,
             }),
           );

@@ -1,6 +1,8 @@
 import { newChat, runTurn, userTurnText, type ImageAttachment, type Send } from '../ai/agent';
 import { readCliStream } from '../ai/cliTransport';
-import { defaultEngine, engineName, type Engine, type EngineConfig } from '../ai/engines';
+import { defaultEngine, effortName, engineName, type Engine, type EngineConfig } from '../ai/engines';
+import { CLAUDE_EFFORTS, type ModelOption } from '../ai/models';
+import type { Question } from '../ai/tools';
 export type { Engine } from '../ai/engines';
 import type { Doc } from '../model/schema';
 import type { Recipe } from '../model/recipes';
@@ -20,6 +22,8 @@ import type { Proposals } from './proposals';
  * - API: the in-browser agent loop through the local proxy (needs ANTHROPIC_API_KEY).
  * Either way the AI's changes land in the shared proposal (proposals.ts), shown tinted violet in
  * the viewport until accepted. Sending another message while a proposal is pending refines it.
+ * When the AI is unsure it asks (ask_user): its questions show with answers to pick, and the
+ * picked answers go with the next message.
  */
 
 export interface Preview {
@@ -57,6 +61,8 @@ export interface ChatPanel extends ChatApi {
 const notesRequest = (ids: string[]) => `Please address my note${ids.length === 1 ? '' : 's'} ${ids.join(', ')}.`;
 const EXAMPLES = ['A 36" base cabinet with two drawers, 3/4 ply', 'A 48" × 30" table with 2" square legs', 'Add a 1/4" roundover to the top edges'];
 const CARD_LINES = 6;
+/** Codex effort levels when it can't list its models. */
+const CODEX_EFFORTS = ['low', 'medium', 'high', 'xhigh'];
 
 const STYLE = `
 .chat { display: flex; flex-direction: column; flex: 1; min-height: 0; }
@@ -67,7 +73,8 @@ const STYLE = `
 .chat header select:hover:not(:disabled) { border-color: var(--line-2); color: var(--fg); }
 .chat header .model { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-3); font-size: var(--fs-xs); }
 .chat header .model.bad { color: var(--bad); }
-.chat header .model { flex-basis: 100%; order: 1; }
+/* Two rows: provider, model and buttons; then effort and the provider status. The model menu gives way first. */
+.chat header .bar { display: flex; flex-basis: 100%; align-items: center; gap: 6px; min-width: 0; }
 .chat header select { min-width: 0; max-width: 145px; }
 .chat .view { flex: 1; min-height: 0; overflow-y: auto; }
 .chat .log { display: flex; flex-direction: column; gap: 10px; padding: 14px; }
@@ -111,6 +118,18 @@ const STYLE = `
 .chat .compose > textarea { display: block; width: 100%; min-height: 40px; max-height: 180px; padding: 0 2px; border: 0; background: none; box-shadow: none; }
 .chat .compose .row { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
 .chat .compose .status { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-3); font-size: var(--fs-xs); }
+.chat .ask { display: grid; gap: 10px; padding: 10px 12px; border: 1px solid #8b7bff66; border-radius: 10px; }
+.chat .ask h4 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: var(--fs-sm); font-weight: 600; }
+.chat .ask h4::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--ai); }
+.chat .ask .q p { margin: 0 0 6px; overflow-wrap: anywhere; }
+.chat .ask .opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.chat .ask .opts button { max-width: 100%; padding: 4px 10px; border: 1px solid var(--line-2); border-radius: 999px; background: none; color: var(--fg);
+  font-size: var(--fs-sm); text-align: left; cursor: pointer; transition: background-color .12s, border-color .12s; }
+.chat .ask .opts button:hover:not(:disabled) { background: var(--hover); border-color: var(--line-3); }
+.chat .ask .opts button[aria-pressed="true"] { border-color: var(--ai); background: var(--ai-soft); }
+.chat .ask .opts button:disabled { cursor: default; }
+.chat .ask .opts button:disabled:not([aria-pressed="true"]) { opacity: .5; }
+.chat .ask .hint { margin: 0; color: var(--fg-3); font-size: var(--fs-xs); }
 `;
 
 const ENGINE_KEY = 'new-modeler.engine';
@@ -129,6 +148,15 @@ const saveEngine = (e: Engine) => {
     // storage unavailable
   }
 };
+/** Per-provider choices (model, effort); '' = the provider's default. */
+const MODELS_KEY = 'new-modeler.models';
+const EFFORTS_KEY = 'new-modeler.efforts';
+const loadChoices = (key: string): Partial<Record<Engine, string>> => {
+  try { return JSON.parse(localStorage.getItem(key) ?? '{}') ?? {}; } catch { return {}; }
+};
+const saveChoices = (key: string, choices: Partial<Record<Engine, string>>) => {
+  try { localStorage.setItem(key, JSON.stringify(choices)); } catch { /* private browsing */ }
+};
 
 export function mountChatPanel(
   parent: HTMLElement,
@@ -143,10 +171,11 @@ export function mountChatPanel(
   parent.append(el('style', {}, STYLE));
   let engine: Engine = loadEngine() ?? 'claude-code';
   let config: EngineConfig | null = null;
-  const savedModels: Partial<Record<Engine, string>> = (() => {
-    try { return JSON.parse(localStorage.getItem('new-modeler.models') ?? '{}') ?? {}; } catch { return {}; }
-  })();
-  const selectedModel = (): string => { const value = savedModels[engine]; return typeof value === 'string' ? value : ''; };
+  const savedModels = loadChoices(MODELS_KEY);
+  const savedEfforts = loadChoices(EFFORTS_KEY);
+  const choice = (saved: Partial<Record<Engine, string>>) => { const value = saved[engine]; return typeof value === 'string' ? value : ''; };
+  const selectedModel = () => choice(savedModels);
+  const selectedEffort = () => choice(savedEfforts);
   let chat = newChat(); // API engine history
   let sessionId: string | undefined; // Selected CLI engine's conversation
   let running: AbortController | null = null;
@@ -158,15 +187,48 @@ export function mountChatPanel(
   let attached = 0;
   /** The camera was turned on because notes arrived (it turns off again once they're gone). */
   let autoShot = false;
+  /** The AI's open questions (ask_user): the answers picked go with the next message. */
+  let asking: { questions: Question[]; picked: (string | undefined)[]; buttons: HTMLButtonElement[]; hint: HTMLElement } | null = null;
 
   const engineSel = el('select', { title: 'Which AI answers', 'aria-label': 'AI provider' });
   engineSel.append(el('option', { value: 'claude-code' }, 'Claude Code'), el('option', { value: 'codex' }, 'Codex'), el('option', { value: 'api' }, 'API'));
   const modelLabel = el('span', { class: 'model' });
   const modelSel = el('select', { title: 'AI model', 'aria-label': 'AI model' });
+  const effortSel = el('select', { title: 'How hard the AI thinks before answering: higher is slower and more thorough', 'aria-label': 'AI effort' });
+  /** The provider's model list, once loaded (Codex's carries each model's effort levels). */
+  let modelOptions: ModelOption[] = [];
   let modelOptionsRequest = 0;
+
+  /** Effort levels for the selected model, and what Default means (when the server or provider says). */
+  function effortChoices(): { levels: readonly string[]; fallback: string | undefined } {
+    if (engine !== 'codex') return { levels: CLAUDE_EFFORTS, fallback: engine === 'api' ? config?.api.effort : config?.claudeCode.effort };
+    const id = selectedModel() || (config && config.codex.model !== 'default' ? config.codex.model : '');
+    const model = modelOptions.find((m) => (id ? m.id === id : m.isDefault));
+    return { levels: model?.efforts ?? CODEX_EFFORTS, fallback: config?.codex.effort ?? model?.defaultEffort };
+  }
+  function showEfforts() {
+    const { levels, fallback } = effortChoices();
+    const saved = selectedEffort();
+    effortSel.replaceChildren(
+      el('option', { value: '' }, fallback ? `Default effort (${effortName(fallback).toLowerCase()})` : 'Default effort'),
+      ...levels.map((e) => el('option', { value: e }, `${effortName(e)} effort`)),
+    );
+    // A level this model doesn't list stays shown, so the menu matches what's sent.
+    if (saved && !levels.includes(saved)) effortSel.append(el('option', { value: saved }, `${effortName(saved)} effort`));
+    effortSel.value = saved;
+  }
+  effortSel.addEventListener('change', () => {
+    savedEfforts[engine] = effortSel.value;
+    saveChoices(EFFORTS_KEY, savedEfforts);
+    add('tool', `Effort set to ${effortSel.value ? effortName(effortSel.value).toLowerCase() : 'default'}.`);
+    showEngine();
+  });
+
   async function loadModels() {
     const request = ++modelOptionsRequest;
     const provider = engine;
+    modelOptions = [];
+    showEfforts();
     const configured = config ? (provider === 'api' ? config.api : provider === 'codex' ? config.codex : config.claudeCode).model : 'default';
     modelSel.replaceChildren(el('option', { value: '' }, configured === 'default' ? 'Default model' : `Default (${configured})`));
     if (selectedModel()) modelSel.append(el('option', { value: selectedModel() }, selectedModel()));
@@ -176,7 +238,8 @@ export function mountChatPanel(
       const data = await response.json();
       if (request !== modelOptionsRequest) return;
       if (!response.ok) throw new Error(data.error?.message ?? 'Model list unavailable');
-      for (const model of data.models as { id: string; label: string }[]) {
+      modelOptions = data.models as ModelOption[];
+      for (const model of modelOptions) {
         const existing = [...modelSel.options].find((option) => option.value === model.id);
         if (existing) existing.textContent = model.label;
         else modelSel.append(el('option', { value: model.id }, model.label));
@@ -189,6 +252,7 @@ export function mountChatPanel(
     if (request !== modelOptionsRequest) return;
     modelSel.append(el('option', { value: '__custom' }, 'Custom model…'));
     modelSel.value = selectedModel();
+    showEfforts();
   }
   modelSel.addEventListener('change', () => {
     let value = modelSel.value;
@@ -199,9 +263,10 @@ export function mountChatPanel(
     }
     if (value === selectedModel()) return;
     savedModels[engine] = value;
-    try { localStorage.setItem('new-modeler.models', JSON.stringify(savedModels)); } catch { /* private browsing */ }
+    saveChoices(MODELS_KEY, savedModels);
     chat = newChat();
     sessionId = undefined;
+    closeQuestions();
     clearRecipe('Model changed');
     add('tool', `Model changed to ${value || 'default'} (new conversation).`);
     showEngine();
@@ -232,7 +297,7 @@ export function mountChatPanel(
     el(
       'div',
       { class: 'chat' },
-      el('header', {}, engineSel, modelSel, modelLabel, helpBtn, newChatBtn),
+      el('header', {}, el('div', { class: 'bar' }, engineSel, modelSel, helpBtn, newChatBtn), el('div', { class: 'bar' }, effortSel, modelLabel)),
       chatView,
       card,
       compose,
@@ -240,11 +305,58 @@ export function mountChatPanel(
   );
 
   const scroll = () => (chatView.scrollTop = chatView.scrollHeight);
-  const add = (cls: string, text: string) => {
+  const put = (node: HTMLElement) => {
     log.querySelector('.welcome')?.remove();
-    log.insertBefore(el('div', { class: `msg ${cls}` }, text), working.parentNode === log ? working : null);
+    log.insertBefore(node, working.parentNode === log ? working : null);
     scroll();
   };
+  const add = (cls: string, text: string) => put(el('div', { class: `msg ${cls}` }, text));
+
+  function showPlaceholder() {
+    input.placeholder = asking ? 'Type an answer…' : attached ? 'Add a message (optional)…' : 'Describe a piece or a change…';
+  }
+
+  /** The AI's questions, with its suggested answers to pick (one question: picking sends it). */
+  function showQuestions(questions: Question[]) {
+    closeQuestions();
+    const one = questions.length === 1;
+    const hint = el('p', { class: 'hint' },
+      !one ? 'Pick answers, add anything below, then Send.' : questions[0]!.options?.length ? 'Pick an answer, or type your own below.' : 'Type your answer below.');
+    const ask: NonNullable<typeof asking> = { questions, picked: questions.map(() => undefined), buttons: [], hint };
+    const rows = questions.map((q, i) => {
+      const options = (q.options ?? []).map((text) => {
+        const b = el('button', { type: 'button', 'aria-pressed': 'false', disabled: !!running }, text);
+        b.addEventListener('click', () => {
+          if (asking !== ask) return;
+          ask.picked[i] = ask.picked[i] === text ? undefined : text;
+          for (const o of options) o.setAttribute('aria-pressed', String(o.textContent === ask.picked[i]));
+          if (one && ask.picked[0]) void submit();
+        });
+        ask.buttons.push(b);
+        return b;
+      });
+      return el('div', { class: 'q' }, el('p', {}, q.question), ...(options.length ? [el('div', { class: 'opts', role: 'group', 'aria-label': q.question }, ...options)] : []));
+    });
+    put(el('div', { class: 'ask', role: 'group', 'aria-label': 'Questions from the AI' }, el('h4', {}, one ? 'Question' : `${questions.length} questions`), ...rows, hint));
+    asking = ask;
+    showPlaceholder();
+    if (!running) input.focus();
+  }
+  /** Answered or moved on from: the card stays in the log with what was picked. */
+  function closeQuestions() {
+    if (!asking) return;
+    for (const b of asking.buttons) b.disabled = true;
+    asking.hint.remove();
+    asking = null;
+    showPlaceholder();
+  }
+  /** The picked answers, as the user's words: the answer alone for one question, else question → answer lines. */
+  function answersText(): string {
+    if (!asking) return '';
+    const { questions, picked } = asking;
+    if (questions.length === 1) return picked[0] ?? '';
+    return questions.flatMap((q, i) => (picked[i] ? [`${q.question} → ${picked[i]}`] : [])).join('\n');
+  }
 
   function showRecipe() {
     const attachment = recipes.attachment;
@@ -294,7 +406,7 @@ export function mountChatPanel(
       [text, ok] = !config.codex.available ? ['Codex CLI not found', false]
         : !config.codex.loggedIn ? ['Sign in with codex login', false]
         : [`your login · ${config.codex.model}`, true];
-    } else [text, ok] = config.api.hasKey ? [`${config.api.model} · ${config.api.effort}`, true] : ['no ANTHROPIC_API_KEY', false];
+    } else [text, ok] = config.api.hasKey ? [`${selectedModel() || config.api.model} · ${selectedEffort() || config.api.effort}`, true] : ['no ANTHROPIC_API_KEY', false];
     modelLabel.textContent = text;
     modelLabel.title = engine === 'codex' && config?.codex.hint ? config.codex.hint : text;
     modelLabel.classList.toggle('bad', !ok);
@@ -309,6 +421,7 @@ export function mountChatPanel(
       config = c;
       if (initial && !running) { engine = defaultEngine(c, loadEngine()); void loadModels(); }
       showEngine();
+      showEfforts();
     })
     .catch(() => showEngine())
     .finally(() => { checkingConfig = false; });
@@ -321,6 +434,7 @@ export function mountChatPanel(
     saveEngine(engine);
     chat = newChat();
     sessionId = undefined;
+    closeQuestions();
     clearRecipe('Provider changed');
     showEngine();
     refreshConfig();
@@ -356,21 +470,22 @@ export function mountChatPanel(
   }
   proposals.subscribe(showPending);
   // Both CLI engines and external MCP clients share the live model's proposal tools.
-  proposals.onTool((name, out) => add(`tool${out.isError ? ' bad' : ''}`, name === 'get_model' ? 'Read the model' : out.summary));
+  proposals.onTool((name, out) => (out.questions ? showQuestions(out.questions) : add(`tool${out.isError ? ' bad' : ''}`, name === 'get_model' ? 'Read the model' : out.summary)));
 
   function setRunning(ctrl: AbortController | null) {
     running = ctrl;
     sendBtn.replaceChildren(...(ctrl ? [icon('stop'), 'Stop'] : [icon('send'), 'Send']));
     sendBtn.className = `btn sm ${ctrl ? '' : 'ai'}`;
     sendBtn.title = ctrl ? 'Stop the AI' : 'Send (Enter)';
-    newChatBtn.disabled = engineSel.disabled = modelSel.disabled = !!ctrl;
+    newChatBtn.disabled = engineSel.disabled = modelSel.disabled = effortSel.disabled = !!ctrl;
+    for (const b of asking?.buttons ?? []) b.disabled = !!ctrl;
     showPending();
     changed();
   }
 
   async function viaApi(text: string, note: string | undefined, images: ImageAttachment[], signal: AbortSignal): Promise<string> {
     const r = await runTurn({
-      send: (req, signal) => send({ ...req, ...(selectedModel() && { model: selectedModel() }) }, signal),
+      send: (req, signal) => send({ ...req, ...(selectedModel() && { model: selectedModel() }), ...(selectedEffort() && { effort: selectedEffort() }) }, signal),
       chat,
       doc: proposals.working(),
       text,
@@ -378,7 +493,7 @@ export function mountChatPanel(
       images,
       signal,
       recipes: proposals.recipes,
-      onEvent: (e) => (e.type === 'text' ? add('ai', e.text) : add(`tool${e.ok ? '' : ' bad'}`, e.summary)),
+      onEvent: (e) => (e.type === 'text' ? add('ai', e.text) : e.questions ? showQuestions(e.questions) : add(`tool${e.ok ? '' : ' bad'}`, e.summary)),
     });
     if (r.stop === 'refusal') add('err', 'The model declined this request.');
     if (r.stop === 'max_tokens') add('err', 'The reply was cut off (too long). Try a smaller step.');
@@ -392,7 +507,11 @@ export function mountChatPanel(
     const res = await fetch(`/api/ai/${engine}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ prompt: userTurnText(proposals.working(), note, text, proposals.recipes), ...(selectedModel() && { model: selectedModel() }), ...(images.length && { images }), ...(sessionId && { sessionId }) }),
+      body: JSON.stringify({
+        prompt: userTurnText(proposals.working(), note, text, proposals.recipes),
+        ...(selectedModel() && { model: selectedModel() }), ...(selectedEffort() && { effort: selectedEffort() }),
+        ...(images.length && { images }), ...(sessionId && { sessionId }),
+      }),
       signal,
     });
     if (!res.ok || !res.body) {
@@ -416,8 +535,9 @@ export function mountChatPanel(
 
   async function submit() {
     const typed = input.value.trim();
+    const answers = answersText();
     const ids = notes?.pending() ?? [];
-    if ((!typed && !ids.length) || running) return;
+    if ((!typed && !answers && !ids.length) || running) return;
     let prepared: ReturnType<typeof recipes.prepare> = null;
     let images: ImageAttachment[];
     try {
@@ -434,13 +554,15 @@ export function mountChatPanel(
     }
     input.value = '';
     grow();
-    const text = [...(recipes.context ? [recipes.context] : []), ...(ids.length ? [notesRequest(ids)] : []), ...(typed ? [typed] : [])].join('\n\n');
+    closeQuestions();
+    const said = [answers, typed].filter(Boolean).join('\n\n');
+    const text = [...(recipes.context ? [recipes.context] : []), ...(ids.length ? [notesRequest(ids)] : []), ...(said ? [said] : [])].join('\n\n');
     log.querySelector('.welcome')?.remove();
     log.append(
       el(
         'div',
         { class: 'msg user' },
-        ...(typed ? [typed] : []),
+        ...(said ? [said] : []),
         ...(prepared ? [el('div', { class: 'shot' }, `Recipe: ${prepared.name}`)] : []),
         ...(notes && ids.length ? [notes.send(ids)] : []),
         ...(images.length ? [el('div', { class: 'shot' }, icon('camera'), 'with a picture of the view')] : []),
@@ -499,6 +621,7 @@ export function mountChatPanel(
     chat = newChat();
     sessionId = undefined;
     status.textContent = '';
+    closeQuestions();
     log.replaceChildren(welcome());
     clearRecipe('New conversation');
     if (proposals.pending) add('tool', 'The existing proposal is still pending. Accept or Reject it before attaching another recipe.');
@@ -532,7 +655,7 @@ export function mountChatPanel(
       }
       attached = n;
       notesSlot.hidden = !n;
-      input.placeholder = n ? 'Add a message (optional)…' : 'Describe a piece or a change…';
+      showPlaceholder();
     },
   };
 }

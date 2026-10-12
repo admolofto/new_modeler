@@ -1,27 +1,26 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { AiRequest, Message } from '../src/ai/agent.ts';
+import { CLAUDE_EFFORTS, type Effort } from '../src/ai/models.ts';
 
 /**
  * Server-side Claude call, shared by the dev-server proxy and the eval runner. The browser
- * builds the conversation and can select a model; effort and API options are set here
+ * builds the conversation and can select a model and effort; other API options are set here
  * and the key never leaves Node.
  */
 
-export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+export type { Effort };
 
 export interface ClaudeConfig {
   model: string;
   effort: Effort;
 }
 
-const EFFORTS: Effort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
-
 /** Reads AI_MODEL / AI_EFFORT (defaults: claude-opus-5, high). */
 export function claudeConfig(env: Record<string, string | undefined>): ClaudeConfig {
   const effort = env.AI_EFFORT as Effort | undefined;
   return {
     model: env.AI_MODEL || 'claude-opus-5',
-    effort: effort && EFFORTS.includes(effort) ? effort : 'high',
+    effort: effort && CLAUDE_EFFORTS.includes(effort) ? effort : 'high',
   };
 }
 

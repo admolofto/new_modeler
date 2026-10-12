@@ -44,8 +44,16 @@ function apiRunner(): Runner {
   const send: Send = (req, signal) => createMessage(client, cfg, req, signal);
   const chat = newChat();
   return async (step, doc, note) => {
-    const r = await runTurn({ send, chat, doc, text: step, note });
-    return { text: r.text, ops: r.ops, ...(r.stop !== 'done' && { failure: `stopped: ${r.stop}` }), usage: { output: r.usage.output, costUsd: 0 } };
+    let r = await runTurn({ send, chat, doc, text: step, note });
+    const ops = [...r.ops];
+    let output = r.usage.output;
+    if (r.stop === 'asked') {
+      // Nobody answers in an eval: the model goes on with its own judgment, like a user who doesn't mind.
+      r = await runTurn({ send, chat, doc: r.draft, text: 'No preference: use your judgment and say what you assumed.' });
+      ops.push(...r.ops);
+      output += r.usage.output;
+    }
+    return { text: r.text, ops, ...(r.stop !== 'done' && { failure: `stopped: ${r.stop}` }), usage: { output, costUsd: 0 } };
   };
 }
 

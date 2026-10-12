@@ -92,6 +92,14 @@ describe('Codex modeling connection', () => {
     expect(child.requests.some((message) => message.method === 'thread/start')).toBe(false);
     expect(child.requests.find((message) => message.method === 'thread/resume')?.params).toMatchObject({ threadId: 'modeler-session', sandbox: 'read-only', approvalPolicy: 'never', model: 'test-model' });
     expect(child.requests.find((message) => message.method === 'turn/start')?.params.input).toContainEqual({ type: 'image', url: 'data:image/png;base64,AAAA' });
+    expect(child.requests.find((message) => message.method === 'turn/start')?.params).toMatchObject({ effort: 'high' });
+  });
+
+  it('offers ask_user so the chat can show its questions', async () => {
+    onTurn = () => complete();
+    await runCodex({ cfg, prompt: 'Build a cabinet', call: vi.fn() });
+    const tools = child.requests.find((message) => message.method === 'thread/start')?.params.dynamicTools as { name: string }[];
+    expect(tools.map((tool) => tool.name)).toContain('ask_user');
   });
 
   it('returns failed turns as errors and rejects unknown tool calls', async () => {
@@ -162,6 +170,17 @@ describe('Codex availability', () => {
     expect(child.requests.some((message) => message.method === 'turn/start')).toBe(false);
     expect(child.killed).toBe(true);
   });
+  it('lists each model\'s effort levels, less ultra (sub-agents are off)', async () => {
+    const original = child.onInput;
+    child.onInput = (message) => {
+      original(message);
+      if (message.method === 'model/list') child.reply(message, { data: [{
+        model: 'sol', displayName: 'Sol', isDefault: true, defaultReasoningEffort: 'low',
+        supportedReasoningEfforts: ['low', 'high', 'ultra'].map((reasoningEffort) => ({ reasoningEffort, description: '' })),
+      }], nextCursor: null });
+    };
+    expect(await codexModels(cfg)).toEqual([{ id: 'sol', label: 'Sol', efforts: ['low', 'high'], defaultEffort: 'low', isDefault: true }]);
+  });
   it('detects the desktop executable while honoring explicit configuration', () => {
     expect(resolveCodexBin({ CODEX_CLI_PATH: 'desktop.exe' }, 'win32', () => true)).toBe('desktop.exe');
     expect(codexConfig({ CODEX_CLI_PATH: 'desktop.exe', CODEX_BIN: 'custom.exe' }).bin).toBe('custom.exe');
@@ -200,7 +219,7 @@ describe('Codex availability', () => {
       queueMicrotask(() => { version.stdout.write('codex-cli test'); version.emit('close', 0); });
       return version as unknown as ReturnType<typeof spawn>;
     });
-    expect(await codexStatus(cfg)).toEqual({ available: true, version: 'codex-cli test', model: 'test-model', loggedIn: false, hint: CODEX_LOGIN_HINT });
+    expect(await codexStatus(cfg)).toEqual({ available: true, version: 'codex-cli test', model: 'test-model', effort: 'high', loggedIn: false, hint: CODEX_LOGIN_HINT });
     expect(child.requests.some((message) => message.method === 'thread/start')).toBe(false);
   });
 });

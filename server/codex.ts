@@ -165,7 +165,7 @@ export async function codexStatus(cfg: CodexConfig) {
     child.on('error', () => { clearTimeout(timer); resolve(null); });
     child.on('close', (code) => { clearTimeout(timer); resolve(code === 0 ? out.trim() : null); });
   });
-  const base = { available: version !== null, version, model: cfg.model ?? 'default', loggedIn: false };
+  const base = { available: version !== null, version, model: cfg.model ?? 'default', ...(cfg.effort && { effort: cfg.effort }), loggedIn: false };
   if (!version) return { ...base, hint: 'Codex CLI not found. Install Codex or set CODEX_BIN in .env.local, then restart the dev server.' };
   const rpc = new CodexRpc(cfg);
   try {
@@ -177,6 +177,18 @@ export async function codexStatus(cfg: CodexConfig) {
   } finally { rpc.close(); }
 }
 
+/** A model/list entry's effort levels, less "ultra": it delegates to sub-agents, which the modeler turns off. */
+function modelEfforts(entry: any): Pick<ModelOption, 'efforts' | 'defaultEffort' | 'isDefault'> {
+  const efforts = Array.isArray(entry.supportedReasoningEfforts)
+    ? entry.supportedReasoningEfforts.map((e: any) => e?.reasoningEffort).filter((e: unknown): e is string => typeof e === 'string' && e !== 'ultra')
+    : [];
+  return {
+    ...(efforts.length && { efforts }),
+    ...(typeof entry.defaultReasoningEffort === 'string' && { defaultEffort: entry.defaultReasoningEffort }),
+    ...(entry.isDefault === true && { isDefault: true }),
+  };
+}
+
 export async function codexModels(cfg: CodexConfig): Promise<ModelOption[]> {
   const rpc = new CodexRpc(cfg);
   try {
@@ -186,7 +198,7 @@ export async function codexModels(cfg: CodexConfig): Promise<ModelOption[]> {
     do {
       const page = await rpc.request('model/list', { limit: 100, includeHidden: false, ...(cursor && { cursor }) });
       for (const entry of page.data ?? []) {
-        if (!entry.hidden && typeof entry.model === 'string') models.set(entry.model, { id: entry.model, label: entry.displayName || entry.model });
+        if (!entry.hidden && typeof entry.model === 'string') models.set(entry.model, { id: entry.model, label: entry.displayName || entry.model, ...modelEfforts(entry) });
       }
       const next = page.nextCursor as string | null;
       if (next === cursor) break;
@@ -222,7 +234,7 @@ export async function runCodex(opts: {
     await rpc.initialize();
     const account = await rpc.request('account/read', { refreshToken: false });
     if (!account.account) throw new Error(CODEX_LOGIN_HINT);
-    const tools = opts.call && !opts.tidy ? mcpToolDefs() : [];
+    const tools = opts.call && !opts.tidy ? mcpToolDefs({ chat: true }) : [];
     const names = new Set(tools.map((tool) => tool.name));
     const settings = {
       cwd: opts.cfg.cwd,
@@ -230,7 +242,7 @@ export async function runCodex(opts: {
       sandbox: 'read-only',
       config: CONFIG,
       baseInstructions: opts.tidy ? TIDY_SYSTEM : SYSTEM_PROMPT,
-      developerInstructions: 'Use only the supplied modeling tools. Do not use shell, files, web, other MCP servers, or agents. Ask questions in your reply when needed.',
+      developerInstructions: 'Use only the supplied modeling tools. Do not use shell, files, web, other MCP servers, or agents. When unsure, ask the user with ask_user, then end your turn.',
       ...(opts.cfg.model && { model: opts.cfg.model }),
     };
     const response = opts.sessionId && !opts.tidy
