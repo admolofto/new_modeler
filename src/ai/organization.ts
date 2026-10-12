@@ -1,3 +1,4 @@
+import { isDecor } from '../model/decor';
 import { parentIndex } from '../model/doc';
 import type { Doc } from '../model/schema';
 
@@ -45,9 +46,14 @@ export function treeIssues(before: Doc, after: Doc): string[] {
       }
     }
   }
-  const loose = [...touched].filter((id) => parents.get(id) === null && after.parts[id] && !after.parts[id]!.block);
+  const top = [...touched].filter((id) => parents.get(id) === null && after.parts[id] && !after.parts[id]!.block);
+  const loose = top.filter((id) => !isDecor(after.parts[id]!));
   if (loose.length > 1) {
     issues.push(`${loose.length} parts are loose at the top level (${loose.map(label).join(', ')}); put a multi-part piece in a named assembly`);
+  }
+  const props = top.filter((id) => isDecor(after.parts[id]!));
+  if (props.length > 1) {
+    issues.push(`${props.length} props are loose at the top level (${props.map(label).join(', ')}); group props in a folder per area or kind ("Island stools", "Pendants")`);
   }
   return issues;
 }

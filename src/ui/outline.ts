@@ -1,5 +1,7 @@
+import { decorInfo, isDecor } from '../model/decor';
 import { DEFAULT_CARCASS, demoDoc } from '../model/defaults';
 import { descendants, parentIndex } from '../model/doc';
+import { editorColors, partLook } from '../model/look';
 import type { Doc, Variable } from '../model/schema';
 import type { Store } from '../model/store';
 import { hiddenNodes, unclickableNodes } from '../model/visibility';
@@ -296,10 +298,13 @@ export function mountOutline(o: OutlineOptions): Outline {
   function partRow(doc: Doc, id: string, depth: number, on: boolean): HTMLElement {
     const part = doc.parts[id]!;
     const mat = part.material ? doc.materials[part.material] : undefined;
+    const decor = isDecor(part) ? decorInfo(part.shape.type)!.label : undefined;
+    // The swatch is the color it draws in (a finish's, else its material's).
+    const color = part.block ? '' : editorColors(doc, part, partLook(doc, part, []))[0]!;
     const row = el(
       'div',
-      { class: `row${on ? ' on' : ''}${hidden.has(id) ? ' is-hidden' : ''}`, role: 'treeitem', tabindex: 0, style: `--d:${depth}`, 'data-id': id, 'aria-selected': String(on), title: part.block ? 'Block — a placeholder' : (mat?.name ?? '') },
-      part.block ? el('span', { class: 'sw block' }) : el('span', { class: 'sw', style: `background:${mat?.color ?? '#888'}` }),
+      { class: `row${on ? ' on' : ''}${hidden.has(id) ? ' is-hidden' : ''}`, role: 'treeitem', tabindex: 0, style: `--d:${depth}`, 'data-id': id, 'aria-selected': String(on), title: part.block ? 'Block — a placeholder' : (decor ?? mat?.name ?? '') },
+      part.block ? el('span', { class: 'sw block' }) : el('span', { class: 'sw', style: `background:${color}` }),
       el('span', { class: 'nm' }, part.name || 'Block'),
       flagButton(doc, id, 'unclickable'),
       flagButton(doc, id, 'hidden'),
@@ -498,8 +503,9 @@ export function mountOutline(o: OutlineOptions): Outline {
     const selected = new Set(selection.targets.map((t) => t.node));
     const all = Object.values(doc.parts).filter((p) => !listed || listed.has(p.id));
     const blocks = all.filter((p) => p.block).length;
-    const n = all.length - blocks;
-    count.textContent = [n ? `${n} part${n === 1 ? '' : 's'}` : '', blocks ? `${blocks} block${blocks === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ');
+    const decor = all.filter(isDecor).length;
+    const n = all.length - blocks - decor;
+    count.textContent = [n ? `${n} part${n === 1 ? '' : 's'}` : '', blocks ? `${blocks} block${blocks === 1 ? '' : 's'}` : '', decor ? `${decor} decor` : ''].filter(Boolean).join(' · ');
     const rows: HTMLElement[] = [];
     for (const id of scope ? [scope] : doc.roots) {
       if (doc.parts[id]) rows.push(partRow(doc, id, 0, selected.has(id)));

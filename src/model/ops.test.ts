@@ -213,3 +213,46 @@ describe('store', () => {
     expect(s.doc).toBe(before);
   });
 });
+
+describe('finishes', () => {
+  const finish = { preset: 'paint', color: '#1f2a44' };
+
+  it('set on parts, folders and materials, and null clears them', () => {
+    let d = ok(emptyDoc(), [
+      { op: 'add', entity: { kind: 'assembly', id: 'box', name: 'Box', finish: { preset: 'wood:walnut' } } },
+      { op: 'add', parent: 'box', entity: { kind: 'part', id: 'lid', name: 'Lid', material: 'ply-3-4', finish, shape: { type: 'box', params: { x: 640, y: 46, z: 640 } } } },
+    ]);
+    expect(d.assemblies.box!.finish).toEqual({ preset: 'wood:walnut' });
+    expect(d.parts.lid!.finish).toEqual(finish);
+    d = ok(d, [
+      { op: 'update', id: 'lid', patch: { finish: null } },
+      { op: 'update', id: 'box', patch: { finish: { preset: 'lacquer', color: '#ffffff', roughness: 0.2 } } },
+      { op: 'update', id: 'ply-1-2', patch: { finish: { preset: 'paint', color: '#000000' } } },
+    ]);
+    expect('finish' in d.parts.lid!).toBe(false);
+    expect(d.assemblies.box!.finish).toEqual({ preset: 'lacquer', color: '#ffffff', roughness: 0.2 });
+    expect(d.materials['ply-1-2']!.finish).toEqual({ preset: 'paint', color: '#000000' });
+    d = ok(d, [{ op: 'update', id: 'box', patch: { finish: null } }, { op: 'update', id: 'ply-1-2', patch: { finish: null, name: '1/2" ply' } }]);
+    expect('finish' in d.assemblies.box!).toBe(false);
+    expect(d.materials['ply-1-2']).toMatchObject({ name: '1/2" ply' });
+    expect('finish' in d.materials['ply-1-2']!).toBe(false);
+  });
+
+  it('refuses a finish on a block, and a malformed one', () => {
+    const d = ok(emptyDoc(), [{ op: 'add', entity: { kind: 'block', size: [640, 640, 640] } }, addPanel]);
+    const block = applyOps(d, [{ op: 'update', id: 'b1', patch: { finish } }]);
+    expect(block.ok ? '' : block.error).toMatch(/is a block/);
+    const bad = applyOps(d, [{ op: 'update', id: 'p1', patch: { finish: { preset: 'paint', color: 'navy' } } }]);
+    expect(bad.ok ? '' : bad.error).toMatch(/finish\.color/);
+  });
+
+  it('sets a finish on a generated part as an override', () => {
+    let d = ok(emptyDoc(), [{ op: 'add', entity: { kind: 'assembly', id: 'a1', name: 'Base', generator: { type: 'carcass', params: { ...DEFAULT_CARCASS } } } }]);
+    d = ok(d, [{ op: 'update', id: 'a1.top', patch: { finish } }, { op: 'update', id: 'a1', patch: { params: { width: inches(30) } } }]);
+    expect(d.parts['a1.top']!.finish).toEqual(finish);
+    expect(d.assemblies.a1!.generator!.overrides.top).toEqual({ finish });
+    d = ok(d, [{ op: 'update', id: 'a1.top', patch: { finish: null } }]);
+    expect(d.parts['a1.top']!.finish).toBeUndefined();
+    expect(d.assemblies.a1!.generator!.overrides.top).toBeUndefined();
+  });
+});

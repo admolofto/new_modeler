@@ -61,3 +61,21 @@ describe('clearance', () => {
     expect(clearance(ok(d, [wall('Stuck', [64, 64, 64], [64, 1024, 1536])]))).toEqual([]);
   });
 });
+
+describe('clearance with hardware', () => {
+  const d = ok(emptyDoc(), [
+    { op: 'add', entity: { kind: 'assembly', id: 'a1', name: 'Base', generator: { type: 'carcass', params: { ...DEFAULT_CARCASS, drawers: [384], doors: 2, pulls: { style: 'bar' } } } } },
+  ]);
+
+  it('lets a pull ride along with its door or drawer: no clash with its own front', () => {
+    expect(d.parts['a1.door-left-pull']).toBeDefined();
+    expect(clearance(d)).toEqual([]);
+  });
+
+  it('checks the pull too: it’s what hits first', () => {
+    const p = d.parts['a1.drawer-1-pull']!;
+    const [x, y, z] = p.transform.position;
+    const c = clearance(ok(d, [wall('Range', [64, 64, 64], [x + 64, y, z + 88 + 32])]));
+    expect(c).toMatchObject([{ motion: 'a1.motion.drawer-1', part: 'a1.drawer-1-pull', hits: 'Range' }]);
+  });
+});

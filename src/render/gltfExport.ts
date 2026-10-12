@@ -1,16 +1,20 @@
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
+import { decorInfo } from '../model/decor';
+import { editorColors, isGlass, partLook } from '../model/look';
 import { easeInOut, motionDelta, motionName, motionSeconds } from '../model/motion';
 import type { Doc, Transform } from '../model/schema';
 import { hiddenNodes } from '../model/visibility';
 import { affineOf, composeAffine, type Affine } from '../model/world';
 import { buildPart } from '../plugins/pipeline';
 import { PALETTE } from './palette';
+import { slotGroups } from './sceneSync';
 
 /**
  * The model for other 3D apps (Blender, Windows 3D Viewer, web viewers): glTF binary (.glb), Y up,
  * meters, as the model has it (closed). One node per part and folder, named as in the tree, materials
- * by color; then an animation clip per door, drawer and lid ("Open — Left door") and one that opens
+ * in the editor's flat colors (a finish's swatch when one was set; decor per surface, glass
+ * see-through); then an animation clip per door, drawer and lid ("Open — Left door") and one that opens
  * everything a beat apart, like the Open button ("Open all"). What's hidden stays out.
  */
 
@@ -43,10 +47,10 @@ export function exportScene(doc: Doc): { scene: THREE.Scene; clips: THREE.Animat
 
   const hidden = hiddenNodes(doc);
   const materials = new Map<string, THREE.MeshStandardMaterial>();
-  const material = (name: string, color: string) => {
-    const key = `${name}|${color}`;
+  const material = (name: string, color: string, glass = false) => {
+    const key = `${name}|${color}|${glass}`;
     let m = materials.get(key);
-    if (!m) materials.set(key, (m = new THREE.MeshStandardMaterial({ name, color, roughness: 0.85 })));
+    if (!m) materials.set(key, (m = new THREE.MeshStandardMaterial({ name, color, roughness: 0.85, ...(glass && { transparent: true, opacity: 0.35 }) })));
     return m;
   };
   const objects = new Map<string, THREE.Object3D>();
@@ -64,7 +68,17 @@ export function exportScene(doc: Doc): { scene: THREE.Scene; clips: THREE.Animat
       g.setAttribute('position', new THREE.BufferAttribute(built.mesh.positions, 3));
       g.setAttribute('normal', new THREE.BufferAttribute(built.mesh.normals, 3));
       g.setIndex(new THREE.BufferAttribute(built.mesh.indices, 1));
-      const mat = part.block ? material('Block', PALETTE.blockCss) : material(doc.materials[part.material ?? '']?.name ?? 'Part', doc.materials[part.material ?? '']?.color ?? '#cccccc');
+      g.userData = { triTags: built.mesh.triTags };
+      let mat: THREE.Material | THREE.Material[];
+      if (part.block) mat = material('Block', PALETTE.blockCss);
+      else {
+        const look = partLook(doc, part, built.mesh.tags);
+        const colors = editorColors(doc, part, look);
+        const name = look.kind === 'decor' ? decorInfo(part.shape.type)!.label : (doc.materials[part.material ?? '']?.name ?? 'Part');
+        const mats = look.slots.map((s, i) => material(name, colors[i]!, isGlass(s.finish)));
+        if (look.kind === 'decor') slotGroups(g, look.tagSlots);
+        mat = look.kind === 'decor' ? mats : mats[0]!;
+      }
       const mesh = new THREE.Mesh(g, mat);
       mesh.name = part.name;
       place(mesh, part.transform);

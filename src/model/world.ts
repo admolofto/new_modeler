@@ -1,4 +1,5 @@
 import type { V3 } from '../geometry/types';
+import { isSolid } from './decor';
 import { parentIndex } from './doc';
 import type { Doc, Transform } from './schema';
 import { buildPart } from '../plugins/pipeline';
@@ -268,6 +269,7 @@ export function penetration(a: Affine, ab: Box3, b: Affine, bb: Box3): number {
  * Pairs of parts that interpenetrate (touching is fine), involving at least one of `ids`. `depth` is
  * the overlap along each axis: world axes, or the first part's own axes when both are turned off the
  * world axes but square to each other; for parts at odd angles to each other it's their bounds' overlap.
+ * Decor that isn't solid (a rug, trim, a recessed can) never counts.
  */
 export function overlaps(doc: Doc, ids: Iterable<string>, boxes = worldBoxes(doc)): { a: string; b: string; depth: V3 }[] {
   const parents = parentIndex(doc);
@@ -277,7 +279,7 @@ export function overlaps(doc: Doc, ids: Iterable<string>, boxes = worldBoxes(doc
     return p && doc.assemblies[p]?.role !== undefined ? parents.get(p) : p;
   };
   const focus = new Set(ids);
-  const partIds = Object.keys(doc.parts).filter((id) => boxes.has(id));
+  const partIds = Object.keys(doc.parts).filter((id) => boxes.has(id) && isSolid(doc.parts[id]!));
   let affines: Map<string, Affine> | undefined;
   const affine = (id: string) => (affines ??= allAffines(doc)).get(id)!;
   const out: { a: string; b: string; depth: V3 }[] = [];

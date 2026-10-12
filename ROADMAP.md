@@ -242,6 +242,20 @@ Part = {
   - **glTF export** (`render/gltfExport.ts`, toolbar **glTF**): `.glb`, meters, closed, a clip per motion with the easing baked in, plus "Open all"
   - Eval: `npm run eval -- -t animation` (carcass drawer over doors; a hand-built frame-and-panel door hinged on its folder; a door beside a wall clears or is reported). Not run live yet
 
+## Presentation — rooms, props, photos for clients
+
+**Goal:** walk a client through the design rendered well, clicking doors and drawers open, in a room with windows and a few props. Spec: `specs/presentation-mode.md`.
+
+- **Status: built (2026-10-06); live evals not yet run.** Notes:
+  - **Finishes (schema v8):** a finish (`wood:walnut`, `paint` + color, `stone:quartz-white`…) is a look, not stock: on a material (the library's carry one), or on a part or folder to override it ("paint the island navy" without forking sheet stock). The editor stays flat — explicit part/folder finishes tint it with their swatch. `slab` stock for stone tops (sized, not nested)
+  - **Decor parts:** room pieces, props and hardware are parts whose shape plugin is decor — no material, out of the cut list, joints, nesting and overall dims — so picking, the gizmo, snapping, notes, clearance, motions, glTF and the AI schema all work on them. One shape per prop kind; appliances with doors are small generators
+  - **Hardware (carcass v2):** `pulls` and `frontFinish`; doors get folders (`<role>-leaf`) and drawer/door motions move the folder, so pulls and user parts ride along (old files regenerate on load; part ids unchanged)
+  - **Room:** a `room` generator around the model (`fit_room`, the toolbar **Room** button): inside wall planes in world coordinates, windows / doors (with a swinging leaf) / openings by position along a wall, floor, ceiling, baseboards, casings, ceiling cans, finishes. Click a wall: "Add window here". Pushing a wall moves it. Walls facing the camera cut away in the editor
+  - **Props:** stools, chairs, table, rug, pendant, cans, strips, hood, plant, bowl, books, vase; fridge, range, dishwasher, microwave that open. Toolbar **Props** catalog places them on floors and counters
+  - **Present (P):** a separate scene (the editor and AI screenshots never change), PBR with bundled CC0 photo textures and grain-aligned UVs, Neutral tone mapping, GTAO, soft shadows, accumulation when still (on-demand rendering), quality tiers. Click to open; lighting presets (Day / Evening / Night / Studio) with sky, sun through the windows, fixtures that light; cutaway walls; saved views tour (presenter-clicker keys); walk mode with collision; Save image
+  - **Photo:** three-gpu-pathtracer 0.0.26 behind an adapter (its WebGL class is deprecated upstream), on a stand-in scene; bounces 8 + 4 (its random table needs ≥ 17 entries — fewer leave a fixed salt-and-pepper pattern); exposure and white balance matched to the live view
+  - Eval: `npm run eval -- -t presentation` (room around a run with a window over the sink, fridge block → fridge, pulls, stools and pendants, two-tone, a three-shot tour, room door near cabinets). Not run live yet
+
 ## Phase 5 — Later
 
 - Mobile/touch viewing and markup
@@ -296,4 +310,5 @@ Part = {
 - **UI (built):** docked top bar / model list + settings / AI panel, one design system where color means selected, AI or note, true fractions for lengths.
 - **Blockout (built):** sketch placeholder blocks in three clicks (B), move / turn anything with a gizmo at any angle, copy and split runs, then hover and talk — the AI builds each block's real piece in its space.
 - **Animations (built):** hinge / slide presets work out pivots and travel from the parts; carcass drawers and new carcass doors come animated; open things with O, check what they hit, export them to glTF.
+- **Presentation (built):** finishes, decor parts, pulls that ride with folders, a room generator with windows and doors, props and appliances, and a Present mode — textured PBR, lighting presets, click-to-open, a views tour, walk mode and path-traced photos.
 - **No CAD kernel** unless a real part needs one; it would slot in as another builder.

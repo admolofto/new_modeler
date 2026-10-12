@@ -1,7 +1,7 @@
 import type { z } from 'zod';
 import type { Prism } from '../geometry/prism';
 import type { Geom, Handle, V2, V3 } from '../geometry/types';
-import type { Feature, JointType, Material, Part, Rotation, Shape, Vec3 } from '../model/schema';
+import type { Feature, Finish, JointType, Material, Part, Rotation, Shape, Vec3 } from '../model/schema';
 import type { Affine, Box3 } from '../model/world';
 
 /**
@@ -38,6 +38,67 @@ export interface ChannelSpec {
   label: string;
 }
 
+/**
+ * One field of a generic params form (the inspector builds decor and room settings from these).
+ * `path` is dotted into the params; `when` names a bool param the field only shows with.
+ */
+export type ParamField = {
+  path: string;
+  label: string;
+  kind: 'length' | 'count' | 'angle' | 'bool' | 'choice' | 'finish' | 'color' | 'number';
+  options?: string[];
+  min?: number;
+  max?: number;
+  when?: string;
+};
+
+/**
+ * Marks a shape as decor (binding note 1): room pieces, props and hardware. Decor parts have no
+ * material and stay out of the cut list, joints, nesting and overall dims; their looks come from
+ * `ShapeDef.surfaces`.
+ */
+export interface DecorInfo {
+  category: 'room' | 'hardware' | 'appliance' | 'lighting' | 'furniture' | 'accessory';
+  /** Default name and catalog label ("Bar stool"). */
+  label: string;
+  /** Generator-only pieces (wall, trim, window, door leaf, appliance body / door): left out of the AI's add list and the catalog. */
+  internal?: boolean;
+  /** Rugs, trim, recessed cans: skipped by the overlap and opening checks. */
+  solid?: false;
+  /** Params for a new one. */
+  defaults?: Record<string, unknown>;
+  /** The generic inspector form. */
+  fields?: ParamField[];
+}
+
+/** How one surface of a decor part looks; `glow` makes it emissive (a bulb, a lit shade). */
+export interface Surface {
+  finish: Finish;
+  glow?: { kelvin: number; strength: number };
+}
+
+/** A decor part's looks by mesh tag: the exact tag first, then the longest matching prefix, then `base`. */
+export interface SurfaceMap {
+  base: Surface;
+  tags?: Record<string, Surface>;
+  prefixes?: [string, Surface][];
+}
+
+/** A light a fixture gives off, part-local (model units); `glow` names the tag that lights up with it. */
+export interface LightSpec {
+  kind: 'spot' | 'point' | 'area';
+  at: V3;
+  dir?: V3;
+  /** An area light's width direction (its `size[0]` runs along it; part-local x when absent). */
+  along?: V3;
+  size?: [number, number];
+  lumens: number;
+  kelvin: number;
+  /** Spot beam angle, degrees. */
+  beam?: number;
+  glow?: string;
+}
+
 export interface ShapeDef<P = unknown> extends PluginBase<P> {
   /** Throws GeometryError / PluginError when the params don't make a valid solid. */
   build(params: P): ShapeOutput;
@@ -50,6 +111,12 @@ export interface ShapeDef<P = unknown> extends PluginBase<P> {
    * null = nothing to do.
    */
   normalize?(params: P): { params: P; offset: V3 } | null;
+  /** Set on decor shapes (room pieces, props, hardware); those must also give `surfaces`. */
+  decor?: DecorInfo;
+  /** A decor part's looks by mesh tag. */
+  surfaces?(params: P): SurfaceMap;
+  /** Lights a fixture gives off (model/look.ts `sceneLights`). */
+  lights?(params: P): LightSpec[];
 }
 
 export interface FeatureContext {
@@ -81,7 +148,11 @@ export interface FeatureDef<P = unknown> extends PluginBase<P> {
 export interface GenPart {
   role: string;
   name: string;
-  material: string;
+  /** Stock parts only: decor parts (a decor shape) have none. */
+  material?: string;
+  finish?: Finish;
+  /** Clicks pass through it (a floor, trim): still selectable from the tree. */
+  unclickable?: true;
   grain: Part['grain'];
   position: Vec3;
   rotation?: Rotation;
@@ -89,12 +160,19 @@ export interface GenPart {
   features?: Feature[];
   /** Role of the generated folder it goes in (one of the output's `groups`); none = directly in the assembly. */
   group?: string;
+  /** Hardware on another generated part (a pull on its door), listed after it: left out when that part isn't there. */
+  mountedOn?: string;
 }
 
-/** A folder grouping a component's generated parts ("Drawer 1"); it sits at the assembly's origin. */
+/**
+ * A folder grouping a component's generated parts ("Drawer 1"). It sits at `position` / `rotation`
+ * in the assembly (default: its origin); its parts' positions are relative to it.
+ */
 export interface GenGroup {
   role: string;
   name: string;
+  position?: Vec3;
+  rotation?: Rotation;
 }
 
 export interface GenJoint {
@@ -105,13 +183,18 @@ export interface GenJoint {
   params: { depth?: number };
 }
 
-/** A motion as emitted by a generator: part roles that move together, the first one's frame first. */
+/**
+ * A motion as emitted by a generator: part or group roles that move together (siblings), the first
+ * one's frame first. It's left out when one of them, or a `requires` part, isn't there (deleted).
+ */
 export interface GenMotion {
   role: string;
   name: string;
   type: string;
-  /** Part roles, all in the same group (or none). */
-  parts: string[];
+  /** Part or group roles. */
+  nodes: string[];
+  /** Part roles that must exist for it to move (a drawer box behind a false front). */
+  requires?: string[];
   params: Record<string, unknown>;
 }
 
@@ -145,6 +228,14 @@ export interface GenFaceDrive {
   sign: 1 | -1;
   /** Growing also moves the assembly origin outward (min-side faces), so the far side stays put. */
   moveOrigin?: boolean;
+  /** The param is a coordinate, not a size: snapping skips "size = …" candidates. */
+  kind?: 'position';
+}
+
+/** A one-click change a generator offers on one of its parts: its new (full) params. */
+export interface GenAction<P = unknown> {
+  label: string;
+  params: P;
 }
 
 export interface GeneratorDef<P = unknown> extends PluginBase<P> {
@@ -156,6 +247,16 @@ export interface GeneratorDef<P = unknown> extends PluginBase<P> {
   faceDrive?(params: P, face: GenFace): GenFaceDrive | null;
   /** Material ids the params reference (regenerate when one changes; block deleting them). */
   materialRefs(params: P): string[];
+  /** What it makes surrounds the model (the room): left out of fits, whole-model dims and placement. */
+  surroundings?: true;
+  /** The AI snapshot shows it as one line plus user children (rooms, appliances). */
+  collapse?: true;
+  /** Faces its faceDrive doesn't claim can't be pushed or pulled (no per-part overrides). */
+  lockedParts?: true;
+  /** The generic inspector form for its params. */
+  fields?: ParamField[];
+  /** One-click changes on one of its parts (where clicked: `role`, `handle`, part-local `at`). */
+  actions?(params: P, ctx: { role: string; handle?: string; at?: V3 }): GenAction<P>[];
 }
 
 /**
@@ -230,6 +331,7 @@ export const motions = new Registry<MotionDef>('motion');
 
 /** Registers a typed def (params are validated before any plugin method is called). */
 export function registerShape<P>(def: ShapeDef<P>): void {
+  if (def.decor && !def.surfaces) throw new PluginError(`decor shape "${def.type}" needs surfaces (how it looks)`);
   shapes.register(def as unknown as ShapeDef);
 }
 export function registerFeature<P>(def: FeatureDef<P>): void {

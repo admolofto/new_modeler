@@ -25,10 +25,10 @@ export interface MotionPlayer {
   closeAll(): void;
   /** The doc on screen changed: motions no longer in it drop out. */
   sync(doc: Doc): void;
-  /** Open / closed changed (not every frame). */
-  subscribe(fn: () => void): void;
-  /** Something moved (every frame of an animation, every scrub). */
-  onMove(fn: () => void): void;
+  /** Open / closed changed (not every frame). Returns an unsubscribe. */
+  subscribe(fn: () => void): () => void;
+  /** Something moved (every frame of an animation, every scrub). Returns an unsubscribe. */
+  onMove(fn: () => void): () => void;
 }
 
 interface Run {
@@ -129,8 +129,14 @@ export function createMotionPlayer(o: { viewport: Viewport; doc(): Doc }): Motio
       }
       if (dropped) changed();
     },
-    subscribe: (fn) => void changeFns.add(fn),
-    onMove: (fn) => void moveFns.add(fn),
+    subscribe(fn) {
+      changeFns.add(fn);
+      return () => void changeFns.delete(fn);
+    },
+    onMove(fn) {
+      moveFns.add(fn);
+      return () => void moveFns.delete(fn);
+    },
   };
   return player;
 }

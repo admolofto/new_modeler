@@ -12,7 +12,7 @@ export interface BuiltPart {
 
 /** Built parts keyed by shape + features, so validation and rendering share the work. */
 const cache = new Map<string, BuiltPart>();
-const CACHE_SIZE = 500;
+const CACHE_SIZE = 2000;
 
 /**
  * Part data → shape (with channels, or profile features → facets) → cut features → tagged mesh

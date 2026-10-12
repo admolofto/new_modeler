@@ -1,10 +1,12 @@
 import { cutList, cutListCsv, DEFAULT_SHEET, nominalThickness, quarters, type CutList, type CutRow, type MaterialCuts } from '../model/cutlist';
+import { inferFinish } from '../model/finishes';
 import { MATERIAL_LIBRARY } from '../model/materialLibrary';
 import type { Op } from '../model/ops';
 import type { Doc, Material } from '../model/schema';
 import type { Store } from '../model/store';
 import { generators } from '../plugins';
 import { el } from './dom';
+import { finishLabel, finishPicker } from './finishPicker';
 import { icon } from './icons';
 import type { Selection } from './selection';
 import { sheetDiagram, type DiagramOptions } from './sheetDiagram';
@@ -14,8 +16,8 @@ import { fmt, LENGTH_HINT, parse, shop, units } from './units';
 /**
  * The shop sheet (L), over the 3D view: the joinery-aware cut list, grouped by material, with
  * board-foot estimates and each sheet drawn with its parts laid out on it, CSV export and a print
- * view; and the materials editor (thickness, sheet size, price, add from the library). Material
- * edits are ops through the store like every other edit.
+ * view; and the materials editor (thickness, sheet size, price, finish, add from the library).
+ * Material edits are ops through the store like every other edit.
  */
 
 const STYLE = `
@@ -67,6 +69,7 @@ const STYLE = `
 .shop .mats input[type=text] { width: 68px; }
 .shop .mats input.name { width: 100%; min-width: 120px; }
 .shop .mats input[type=number] { width: 72px; }
+.shop .mats .finish-pick { min-width: 170px; }
 .shop .add { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 14px; }
 .shop .add select { max-width: 320px; }
 .shop-print { display: none; }
@@ -115,6 +118,7 @@ function materialSummary(m: MaterialCuts): string {
   if (m.boardFeet) {
     bits.push(`${m.boardFeet.net.toFixed(1)} bd ft at ${quarters(m.boardFeet.nominal)} — buy ≈ ${m.boardFeet.withWaste.toFixed(1)} with 20% waste`);
   }
+  if (m.material.stock === 'slab') bits.push(`slab, ≈ ${(m.area / 144).toFixed(1)} sq ft — fabricated to these sizes`);
   if (m.cost !== undefined) bits.push(money(m.cost));
   return bits.join(' · ');
 }
@@ -320,17 +324,23 @@ export function mountShopPanel(parent: HTMLElement, o: ShopOptions): ShopPanel {
   }
 
   function materialRow(doc: Doc, m: Material): HTMLElement {
-    const color = el('input', { type: 'color', value: m.color, title: 'Color in the viewport' });
+    const color = el('input', { type: 'color', value: m.color, title: 'Its color on sheet diagrams, and in the viewport while its finish is Auto' });
     color.addEventListener('input', () => patch(m, { color: color.value }, 'color'));
     const name = el('input', { type: 'text', class: 'name', value: m.name });
     name.addEventListener('change', () => name.value.trim() && patch(m, { name: name.value.trim() }));
-    const stock = el('select', {}, el('option', { value: 'sheet' }, 'Sheet'), el('option', { value: 'solid' }, 'Solid'));
+    const stock = el('select', {}, el('option', { value: 'sheet' }, 'Sheet'), el('option', { value: 'solid' }, 'Solid'), el('option', { value: 'slab' }, 'Slab'));
     stock.value = m.stock;
     stock.addEventListener('change', () => patch(m, { stock: stock.value }));
     const thick = lengthIn(m.thickness, (u) => patch(m, { thickness: u }, 'thickness'));
     thick.title = `Actual thickness (parts and generators size from it). ${LENGTH_HINT}`;
+    const finish = finishPicker({
+      value: m.finish,
+      auto: `Auto (${finishLabel(inferFinish(m))})`,
+      onChange: (f, dragging) => patch(m, { finish: f }, dragging ? 'finishColor' : undefined),
+    });
     const size = el('div', { class: 'row' });
-    if (m.stock === 'sheet') {
+    if (m.stock === 'slab') size.append(el('span', { class: 'dim', title: 'Slabs are fabricated to the cut list sizes' }, '—'));
+    else if (m.stock === 'sheet') {
       const [w, l] = m.sheet ?? DEFAULT_SHEET;
       size.append(
         lengthIn(w, (u) => patch(m, { sheet: [u, (o.store.doc.materials[m.id]?.sheet ?? DEFAULT_SHEET)[1]] }, 'sheetW')),
@@ -347,6 +357,8 @@ export function mountShopPanel(parent: HTMLElement, o: ShopOptions): ShopPanel {
     }
     const price = el('input', { type: 'number', min: 0, step: 'any', value: m.price === undefined ? '' : String(m.price), placeholder: '—' });
     price.title = m.stock === 'sheet' ? 'Price per sheet' : 'Price per board foot';
+    // Slabs are quoted by the fabricator: no cost estimate.
+    price.hidden = m.stock === 'slab';
     price.addEventListener('input', () => {
       const v = price.value.trim();
       const n = Number(v);
@@ -361,6 +373,7 @@ export function mountShopPanel(parent: HTMLElement, o: ShopOptions): ShopPanel {
       {},
       el('td', {}, color),
       el('td', {}, name),
+      el('td', {}, finish),
       el('td', {}, stock),
       el('td', {}, thick),
       el('td', {}, size),
@@ -374,7 +387,7 @@ export function mountShopPanel(parent: HTMLElement, o: ShopOptions): ShopPanel {
     const table = el(
       'table',
       { class: 'mats' },
-      el('tr', {}, ...['', 'Name', 'Stock', 'Thickness', 'Sheet W × L / nominal', 'Price', 'Used by', ''].map((h, i) => el('th', { class: i === 6 ? 'num' : '' }, h))),
+      el('tr', {}, ...['', 'Name', 'Finish', 'Stock', 'Thickness', 'Sheet W × L / nominal', 'Price', 'Used by', ''].map((h, i) => el('th', { class: i === 7 ? 'num' : '' }, h))),
       ...Object.values(doc.materials).map((m) => materialRow(doc, m)),
     );
     const lib = el('select');
@@ -388,7 +401,7 @@ export function mountShopPanel(parent: HTMLElement, o: ShopOptions): ShopPanel {
     const addNew = el('button', { class: 'btn ghost' }, icon('plus'), 'New material');
     addNew.addEventListener('click', () => dispatch([{ op: 'add', entity: { kind: 'material', name: 'New material', thickness: 48, color: '#c8b089', stock: 'sheet' } }]));
     return [
-      el('div', { class: 'hint', style: 'margin-bottom:10px' }, ...shop('Thickness is the actual thickness (3/4" plywood is 23/32"); changing it resizes cabinets made from it. Prices feed the cost estimate.')),
+      el('div', { class: 'hint', style: 'margin-bottom:10px' }, ...shop('Thickness is the actual thickness (3/4" plywood is 23/32"); changing it resizes cabinets made from it. Prices feed the cost estimate. A finish is how it looks (paint, a stain); Auto goes by its name.')),
       table,
       el('div', { class: 'add' }, lib, addLib, addNew),
     ];

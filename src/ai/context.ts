@@ -1,6 +1,10 @@
 import { directionText, frontOf } from '../edit/blocks';
 import { isGround, targetPoint } from '../edit/targets';
 import { clashText, clearance } from '../model/clearance';
+import { decorInfo, isDecor } from '../model/decor';
+import { descendants } from '../model/doc';
+import { roomIssues, roomParams } from '../model/room';
+import { generators } from '../plugins/registry';
 import type { Recipe } from '../model/recipes';
 import type { Doc } from '../model/schema';
 import { worldBoxes } from '../model/world';
@@ -11,7 +15,11 @@ import { hiddenNodes } from '../model/visibility';
  * (with each node's `bind` formulas), plus each node's world bounds (so it can place things
  * relative to what exists without composing transforms itself), and the user's open markup
  * notes with each target's world point. Blocks (placeholders) show as `block: true` with the way
- * their front faces. Generated joints and animations are left out; they follow the generator. The
+ * their front faces, and decor (props, hardware, room pieces) as `decor: true` with its shape.
+ * Finishes show where they're set. Generated joints, animations and hardware (a carcass's pulls) are left out; they
+ * follow the generator. A generator that makes a whole thing (`collapse`: the room) is one line with its params,
+ * how many parts it made and (the room) its inside, plus what the user put in it; `roomIssues` lists openings
+ * something stands in front of. The
  * user's own animations follow, then anything that hits something as it opens ("clashes"). The
  * user's saved recipes follow as a short catalog (get_recipe has the rest), so the AI knows they exist.
  */
@@ -23,9 +31,30 @@ export function modelSnapshot(doc: Doc, recipes: readonly Recipe[] = []): string
     return b && [b.min, b.max];
   };
   const isZero = (v: number[]) => v.every((c) => c === 0);
+  /** A generated pull: its generator's params (`pulls`) say all there is to say. */
+  const generatedHardware = (id: string) => {
+    const part = doc.parts[id];
+    return !!part && part.role !== undefined && isDecor(part) && decorInfo(part.shape.type)!.category === 'hardware';
+  };
 
   const node = (id: string): unknown => {
     const part = doc.parts[id];
+    if (part && isDecor(part)) {
+      return {
+        id,
+        name: part.name,
+        decor: true,
+        ...(part.role && { role: part.role }),
+        ...(part.hidden && { hidden: true }),
+        ...(hidden.has(id) && !part.hidden && { hiddenByParent: true }),
+        ...(part.unclickable && { unclickable: true }),
+        shape: part.shape,
+        position: part.transform.position,
+        ...(!isZero(part.transform.rotation) && { rotation: part.transform.rotation }),
+        front: directionText(frontOf(doc, id)),
+        world: world(id),
+      };
+    }
     if (part?.block) {
       return {
         id,
@@ -50,6 +79,7 @@ export function modelSnapshot(doc: Doc, recipes: readonly Recipe[] = []): string
         ...(hidden.has(id) && !part.hidden && { hiddenByParent: true }),
         ...(part.unclickable && { unclickable: true }),
         material: part.material,
+        ...(part.finish && { finish: part.finish }),
         grain: part.grain,
         position: part.transform.position,
         ...(!isZero(part.transform.rotation) && { rotation: part.transform.rotation }),
@@ -62,6 +92,7 @@ export function modelSnapshot(doc: Doc, recipes: readonly Recipe[] = []): string
       };
     }
     const asm = doc.assemblies[id]!;
+    if (asm.generator && generators.has(asm.generator.type) && generators.get(asm.generator.type).collapse) return collapsed(id);
     return {
       id,
       name: asm.name,
@@ -70,6 +101,7 @@ export function modelSnapshot(doc: Doc, recipes: readonly Recipe[] = []): string
       ...(asm.hidden && { hidden: true }),
       ...(hidden.has(id) && !asm.hidden && { hiddenByParent: true }),
       ...(asm.unclickable && { unclickable: true }),
+      ...(asm.finish && { finish: asm.finish }),
       position: asm.transform.position,
       ...(!isZero(asm.transform.rotation) && { rotation: asm.transform.rotation }),
       ...(asm.generator && {
@@ -81,7 +113,37 @@ export function modelSnapshot(doc: Doc, recipes: readonly Recipe[] = []): string
       }),
       ...(asm.bind && { bind: asm.bind }),
       world: world(id),
-      children: asm.children.map(node),
+      children: asm.children.filter((c) => !generatedHardware(c)).map(node),
+    };
+  };
+
+  /**
+   * A generator that makes a whole thing (the room, an appliance) is one line: its params say it all.
+   * What the user put in it (or in its folders) still shows; the room adds its inside.
+   */
+  const collapsed = (id: string) => {
+    const asm = doc.assemblies[id]!;
+    const inside = descendants(doc, id);
+    const generated = inside.filter((c) => doc.parts[c]?.role !== undefined).length;
+    const folders = asm.children.filter((c) => doc.assemblies[c]?.role !== undefined);
+    const user = [...asm.children, ...folders.flatMap((f) => doc.assemblies[f]!.children)].filter((c) => (doc.parts[c] ?? doc.assemblies[c])?.role === undefined);
+    const room = asm.generator!.type === 'room' ? roomParams(asm) : null;
+    return {
+      id,
+      name: asm.name,
+      assembly: true,
+      ...(asm.hidden && { hidden: true }),
+      ...(hidden.has(id) && !asm.hidden && { hiddenByParent: true }),
+      ...(asm.unclickable && { unclickable: true }),
+      generator: {
+        type: asm.generator!.type,
+        params: asm.generator!.params,
+        ...(Object.keys(asm.generator!.overrides).length && { overrides: asm.generator!.overrides }),
+      },
+      world: world(id),
+      generatedParts: generated,
+      ...(room && { interior: [[room.left, 0, room.back], [room.right, room.height, room.front]] }),
+      ...(user.length && { children: user.map(node) }),
     };
   };
 
@@ -100,20 +162,24 @@ export function modelSnapshot(doc: Doc, recipes: readonly Recipe[] = []): string
   const variables = Object.values(doc.variables);
   const userMotions = Object.values(doc.motions).filter((m) => m.role === undefined);
   let clashes: string[] = [];
+  let issues: string[] = [];
   try {
     clashes = clearance(doc).map((c) => clashText(doc, c));
+    issues = roomIssues(doc);
   } catch {
     // something doesn't build: the tool results say what
   }
   return JSON.stringify({
-    materials: Object.values(doc.materials).map(({ id, name, thickness, stock }) => ({ id, name, thickness, stock })),
+    materials: Object.values(doc.materials).map(({ id, name, thickness, stock, finish }) => ({ id, name, thickness, stock, ...(finish && { finish }) })),
     ...(variables.length && { variables: variables.map(({ id, name, group, unit, value }) => ({ id, group, name, unit, value })) }),
     tree: doc.roots.map(node),
     ...(userJoints.length && { joints: userJoints }),
     ...(userMotions.length && { motions: userMotions }),
     ...(clashes.length && { clashes }),
+    ...(issues.length && { roomIssues: issues }),
     ...(notes.length && { notes }),
     ...(recipes.length && { recipes: recipeCatalog(recipes) }),
+    ...(doc.presentation && { presentation: doc.presentation }),
   });
 }
 

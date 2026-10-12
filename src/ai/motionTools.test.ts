@@ -20,7 +20,9 @@ describe('animations for the AI', () => {
   it('teaches the motion types in the apply_ops schema and the prompt', () => {
     const text = JSON.stringify(toolDefs()[0]!.input_schema);
     for (const needle of ['"motion"', '"hinge"', '"slide"', 'Swings about one edge', 'Slides straight', '"doors"', '"doorHinge"']) expect(text).toContain(needle);
-    expect(text.length).toBeLessThan(40_000);
+    // The room (presentation phase 5) grew it past 40k, props and appliances (phase 7) to ~58k;
+    // toolBudget.test.ts guards the whole set.
+    expect(text.length).toBeLessThan(64_000);
     expect(SYSTEM_PROMPT).toContain('# Animation (how things open)');
   });
 

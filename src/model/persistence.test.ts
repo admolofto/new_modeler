@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
+import { generators, registerGenerator } from '../plugins';
 import { buildPart } from '../plugins/pipeline';
 import { demoDoc } from './defaults';
 import { migrateDoc } from './migrations';
@@ -10,8 +12,24 @@ import goldenV3 from './__golden__/v3-doors-vars.json?raw';
 import goldenV4 from './__golden__/v4-joinery.json?raw';
 import goldenV5 from './__golden__/v5-blocks.json?raw';
 import goldenV6 from './__golden__/v6-motions.json?raw';
-import { cutParts } from './cutlist';
+import goldenV7 from './__golden__/v7-folders.json?raw';
+import goldenV8 from './__golden__/v8-finishes.json?raw';
+import goldenV8Presentation from './__golden__/v8-presentation.json?raw';
+import { cutList, cutParts } from './cutlist';
+import { effectiveFinish } from './look';
+import { motionOf, movedAffines } from './motion';
 import { SCHEMA_VERSION } from './schema';
+
+// A generator at v2 that saved files may hold at v1: loading regenerates those (and only those).
+registerGenerator<{ size: number }>({
+  type: 'testShelf',
+  version: 2,
+  schema: z.object({ size: z.int().positive() }),
+  describe: 'test only',
+  migrate: (old) => old,
+  generate: (p) => ({ parts: [{ role: 'board', name: 'Board', material: 'ply-3-4', grain: 'x', position: [0, 0, 0], shape: { type: 'box', params: { x: p.size, y: 46, z: 640 } } }], joints: [] }),
+  materialRefs: () => ['ply-3-4'],
+});
 
 describe('persistence', () => {
   it('round-trips a doc with holes, an outline and edge profiles', () => {
@@ -42,6 +60,21 @@ describe('persistence', () => {
     const file = JSON.parse(serialize(demoDoc()));
     file.pluginVersions['feature:hole'] = 99;
     expect(() => deserialize(JSON.stringify(file))).toThrow(/feature "hole" v99/);
+  });
+
+  it('regenerates on load only the assemblies an older generator version saved', () => {
+    const r = applyOps(demoDoc(), [{ op: 'add', entity: { kind: 'assembly', id: 's1', name: 'Shelf', transform: { position: [0, 0, 3000] }, generator: { type: 'testShelf', params: { size: 640 } } } }]);
+    if (!r.ok) throw new Error(r.error);
+    expect(generators.get('testShelf').version).toBe(2);
+    const file = JSON.parse(serialize(r.doc));
+    // Hand-edit both generators' parts in the file (not as overrides), as an older generator might have made them.
+    file.parts['s1.board'].name = 'Old board';
+    file.parts['a1.top'].name = 'Old top';
+    expect(deserialize(JSON.stringify(file)).parts['a1.top']!.name).toBe('Old top');
+    file.pluginVersions['generator:testShelf'] = 1;
+    const d = deserialize(JSON.stringify(file));
+    expect(d.parts['s1.board']!.name).toBe('Board');
+    expect(d.parts['a1.top']!.name).toBe('Old top');
   });
 });
 
@@ -131,6 +164,83 @@ describe('golden files', () => {
     expect(d.assemblies['a1.drawer-1']!.children).toContain('a1.drawer-1-front');
     expect(d.motions.swing).toEqual({ id: 'swing', name: 'Pantry door', type: 'hinge', nodes: ['pantry'], params: { side: 'left', angle: 95, seconds: 0.8 } });
     expect(d.parts['a1.door-left']!.features.filter((f) => f.type === 'hole')).toHaveLength(2);
+    expect(deserialize(serialize(d))).toEqual(d);
+  });
+
+  it('v7: a carcass with drawer folders, a pull in one, an override, a note and a hidden folder upgrades to door folders', () => {
+    const raw = JSON.parse(goldenV7);
+    const d = deserialize(goldenV7);
+    // Saved by carcass v1, so it regenerates (v2): each door goes in its own folder, and the folders move.
+    expect(d.assemblies.a1!.children).toEqual(['a1.side-left', 'a1.side-right', 'a1.bottom', 'a1.top', 'a1.back', 'a1.kick', 'a1.drawer-1', 'a1.drawer-2', 'a1.door-left-leaf', 'a1.door-right-leaf']);
+    expect(d.assemblies['a1.door-left-leaf']).toMatchObject({ name: 'Left door', role: 'door-left-leaf', transform: { position: [0, 0, 0], rotation: [0, 0, 0] }, children: ['a1.door-left'] });
+    // Every part keeps its id and data (no id migration): overrides and notes still resolve.
+    for (const [id, part] of Object.entries(raw.parts)) expect(d.parts[id], id).toEqual(part);
+    expect(d.parts['a1.door-left']!.material).toBe('maple-4-4');
+    expect(d.assemblies.a1!.generator!.overrides).toEqual({ 'door-left': { material: 'maple-4-4' }, 'drawer-2': { hidden: true } });
+    expect(d.annotations).toEqual(raw.annotations);
+    expect(d.annotations.n1!.targets).toEqual([{ node: 'a1.door-left', handle: 'face:front' }]);
+    expect(d.assemblies['a1.drawer-2']!.hidden).toBe(true);
+    expect(d.assemblies['a1.drawer-1']!.children).toContain('pull-1');
+    // Same motion ids; the drawer's folder slides, so the user's pull in it now rides along.
+    expect(Object.values(d.motions).filter((m) => m.role).map((m) => [m.id, m.nodes])).toEqual([
+      ['a1.motion.drawer-1', ['a1.drawer-1']],
+      ['a1.motion.drawer-2', ['a1.drawer-2']],
+      ['a1.motion.door-left', ['a1.door-left-leaf']],
+      ['a1.motion.door-right', ['a1.door-right-leaf']],
+    ]);
+    expect(motionOf(d, 'pull-1')!.id).toBe('a1.motion.drawer-1');
+    const open = movedAffines(d, d.motions['a1.motion.drawer-1']!, 1);
+    expect(open.get('pull-1')!.t[2] - open.get('a1.drawer-1-front')!.t[2]).toBe(raw.parts['pull-1'].transform.position[2] - raw.parts['a1.drawer-1-front'].transform.position[2]);
+    expect(open.get('pull-1')!.t[2]).toBeGreaterThan(raw.parts['pull-1'].transform.position[2]);
+    expect(d.motions.swing).toMatchObject({ nodes: ['pantry'], type: 'hinge' });
+    // Loaded again, it's current: nothing regenerates.
+    expect(deserialize(serialize(d))).toEqual(d);
+    const r = applyOps(d, [{ op: 'update', id: 'a1', patch: { params: { width: 2304 } } }]);
+    expect(r.ok && r.doc.assemblies['a1.drawer-1']!.children).toContain('pull-1');
+  });
+
+  it('v8: a staged room (window, door, cans), props, an appliance, pulls, views and lighting round-trip', () => {
+    const d = deserialize(goldenV8Presentation);
+    expect(d.version).toBe(SCHEMA_VERSION);
+    // (Plugin versions aside: this file registers a test generator of its own.)
+    const bare = (text: string) => ({ ...JSON.parse(text), pluginVersions: null });
+    expect(bare(serialize(d))).toEqual(bare(goldenV8Presentation));
+    // The room: its openings, the door's hinge, the ceiling lights.
+    const room = d.assemblies.room!.generator!.params as { openings: { kind: string }[]; cans: unknown };
+    expect(room.openings.map((o) => o.kind)).toEqual(['window', 'door']);
+    expect(room.cans).toEqual({ rows: 2, cols: 2, diameter: 256 });
+    expect(Object.values(d.motions).filter((m) => m.nodes.some((n) => n.startsWith('room.door-')))).toHaveLength(1);
+    expect(Object.keys(d.parts).filter((id) => /^room\.can-/.test(id))).toHaveLength(4);
+    // Pulls ride in their folders; the fridge opens; props are decor with no material.
+    expect(motionOf(d, 'a1.drawer-1-pull')?.id).toBe('a1.motion.drawer-1');
+    expect(Object.values(d.motions).filter((m) => m.id.startsWith('fridge1.')).length).toBeGreaterThanOrEqual(2);
+    for (const id of ['st1', 'st2', 'pd1', 'rug1', 'pl1']) expect(d.parts[id]!.material).toBeUndefined();
+    // Views and lighting.
+    expect(d.presentation!.views.map((v) => v.name)).toEqual(['The kitchen', 'Drawer', 'From the door']);
+    expect(d.presentation!.lighting).toEqual({ preset: 'day', exposure: 0.3, underCabinet: true });
+    // Nothing decor lands in the cut list; the quartz top is listed by size.
+    const listed = new Set(cutParts(d).parts.map((p) => p.id));
+    for (const id of ['st1', 'pd1', 'room.floor', 'a1.drawer-1-pull']) expect(listed.has(id)).toBe(false);
+    expect(listed.has('top')).toBe(true);
+  });
+
+  it('v8: material, folder, cabinet and part finishes and a slab top round-trip', () => {
+    const d = deserialize(goldenV8);
+    expect(d.version).toBe(SCHEMA_VERSION);
+    expect(d.materials['ply-3-4']!.finish).toEqual({ preset: 'paint', color: '#f4f2ec' });
+    expect(d.materials['quartz-3cm']).toMatchObject({ stock: 'slab', thickness: 76, finish: { preset: 'stone:quartz-white' } });
+    expect(d.assemblies.a1!.finish).toEqual({ preset: 'paint', color: '#1f2a44' });
+    expect(d.assemblies['a1.drawer-1']!.finish).toEqual({ preset: 'wood:walnut' });
+    expect(d.parts.shelf!.finish).toEqual({ preset: 'wood:walnut', color: '#c08a5a' });
+    // Who wins: the part's own, then the nearest folder's, then the cabinet's, then the material's.
+    expect(effectiveFinish(d, 'a1.door-left').finish).toEqual({ preset: 'lacquer', color: '#2e4a3b', roughness: 0.3 });
+    expect(effectiveFinish(d, 'a1.drawer-1-front').finish).toEqual({ preset: 'wood:walnut' });
+    expect(effectiveFinish(d, 'a1.side-left').finish).toEqual({ preset: 'paint', color: '#1f2a44' });
+    // The slab top is listed by size: no sheets, no board feet.
+    const slab = cutList(d).materials.find((m) => m.material.id === 'quartz-3cm')!;
+    expect(slab).toMatchObject({ parts: 1, rows: [{ length: 2368, width: 1600, thickness: 76 }] });
+    expect(slab.sheets).toBeUndefined();
+    expect(slab.boardFeet).toBeUndefined();
     expect(deserialize(serialize(d))).toEqual(d);
   });
 });

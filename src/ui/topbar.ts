@@ -23,8 +23,8 @@ const CSS = `
 #topbar .sep { flex: none; width: 1px; height: 18px; margin: 0 6px; background: var(--line-2); }
 #topbar .tools { display: flex; align-items: center; gap: 2px; }
 #topbar .seg.units button { padding: 0 8px; }
-@media (max-width: 1180px) { #topbar .side.r .btn .t { display: none; } #topbar .side.r .btn:not(.icon) { padding: 0 7px; } }
-.help { top: 48px; right: 8px; width: 380px; font-size: var(--fs-sm); }
+@media (max-width: 1320px) { #topbar .side.r .btn .t { display: none; } #topbar .side.r .btn:not(.icon) { padding: 0 7px; } }
+.help { top: 48px; right: 8px; width: 380px; max-height: calc(100vh - 64px); overflow-y: auto; font-size: var(--fs-sm); }
 .help h4 { margin: 10px 0 4px; font-size: var(--fs-sm); color: var(--fg-2); font-weight: 600; }
 .help h4:first-child { margin-top: 0; }
 .help dl { display: grid; grid-template-columns: 118px 1fr; gap: 4px 10px; margin: 0; }
@@ -92,8 +92,24 @@ const HELP: [string, [string[], string][]][] = [
       [['O'], 'Open / close the selection’s doors, drawers and lids (nothing selected: all of them)'],
       [['D'], 'Dimension lines'],
       [['U'], 'Inches ⇄ millimetres'],
+      [['P'], 'Present: a rendered view for clients; click doors and drawers to open them (Esc leaves)'],
       [['L'], 'Cut list'],
       [['?'], 'This list'],
+    ],
+  ],
+  [
+    'Presenting (P)',
+    [
+      [['Click'], 'Open or close the door, drawer or appliance under the cursor'],
+      [['Double-click'], 'Fly in to that spot (walking: walk to it)'],
+      [['Drag'], 'Orbit (right-drag: pan, wheel: zoom)'],
+      [['→', '←'], 'Next / previous saved view (PageDown / PageUp, Space, 1–9)'],
+      [['V'], 'Walk at eye height: WASD or the arrows, drag to look'],
+      [['O'], 'Open / close everything'],
+      [['L'], 'Next lighting: Auto, Day, Evening, Night, Studio'],
+      [['H'], 'Hide the controls (they also fade when the mouse rests)'],
+      [['F'], 'Fullscreen'],
+      [['Esc'], 'Cancel a photo, leave walking, then leave presenting'],
     ],
   ],
 ];

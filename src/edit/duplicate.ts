@@ -1,11 +1,12 @@
+import { decorInfo, isDecor } from '../model/decor';
 import { descendants, ModelError, nextId, parentIndex } from '../model/doc';
 import { generatedOwner, genPartId } from '../model/generate';
-import { applyOps, blockName, type Op } from '../model/ops';
+import { applyOps, blockName, numberedName, type Op } from '../model/ops';
 import type { Doc } from '../model/schema';
 
 /**
- * Copies of blocks, parts and assemblies, as ops that put each copy exactly where its original is
- * (callers move or turn the copies after). New ids, everything else the same: a generated assembly
+ * Copies of blocks, decor, parts and assemblies, as ops that put each copy exactly where its original
+ * is (callers move or turn the copies after). New ids, everything else (finishes too) the same: a generated assembly
  * regenerates from its params and replays its overrides (hand edits and features on its parts); user
  * joints between copied parts, and animations of copied things, are copied too. Bindings are dropped — a copy doesn't follow the
  * original's variables — and notes stay with the original. Pure.
@@ -37,10 +38,21 @@ export function duplicateOps(doc: Doc, ids: readonly string[]): { ops: Op[]; cop
         copied.set(src, id);
         return id;
       }
-      if (!part.material) throw new ModelError(`"${part.name}" has no material`);
       const id = nextId(scratch, 'p');
-      const entity = { kind: 'part' as const, id, name: part.name, material: part.material, grain: part.grain, transform, shape: structuredClone(part.shape), features: structuredClone(part.features) };
-      push({ op: 'add', entity, parent, ...at });
+      if (isDecor(part)) {
+        // A default name ("Bar stool 2") is numbered afresh, so no two are alike; a name the user gave is kept.
+        const label = decorInfo(part.shape.type)?.label;
+        const rest = label && part.name.startsWith(`${label} `) ? part.name.slice(label.length + 1) : null;
+        const name = label && (part.name === label || (rest !== null && /^\d+$/.test(rest))) ? numberedName(scratch, label) : part.name;
+        push({ op: 'add', entity: { kind: 'decor', id, name, grain: part.grain, transform, shape: structuredClone(part.shape) }, parent, ...at });
+      } else {
+        if (!part.material) throw new ModelError(`"${part.name}" has no material`);
+        const entity = {
+          kind: 'part' as const, id, name: part.name, material: part.material, grain: part.grain, transform,
+          shape: structuredClone(part.shape), features: structuredClone(part.features), ...(part.finish && { finish: structuredClone(part.finish) }),
+        };
+        push({ op: 'add', entity, parent, ...at });
+      }
       copied.set(src, id);
       return id;
     }
@@ -48,7 +60,8 @@ export function duplicateOps(doc: Doc, ids: readonly string[]): { ops: Op[]; cop
     if (!asm) throw new ModelError(`nothing to copy with id "${src}"`);
     const id = nextId(scratch, 'a');
     const generator = asm.generator && { type: asm.generator.type, params: structuredClone(asm.generator.params) };
-    push({ op: 'add', entity: { kind: 'assembly', id, name: asm.name, transform: structuredClone(asm.transform), ...(generator && { generator }) }, parent, ...at });
+    const finish = asm.finish && { finish: structuredClone(asm.finish) };
+    push({ op: 'add', entity: { kind: 'assembly', id, name: asm.name, transform: structuredClone(asm.transform), ...(generator && { generator }), ...finish }, parent, ...at });
     copied.set(src, id);
     if (asm.generator) {
       // Hand edits to generated parts: replay each override so the copy's overrides match.
@@ -64,6 +77,7 @@ export function duplicateOps(doc: Doc, ids: readonly string[]): { ops: Op[]; cop
             ...(ov.name !== undefined && { name: folder.name }),
             ...(ov.hidden !== undefined && { hidden: folder.hidden ?? false }),
             ...(ov.unclickable !== undefined && { unclickable: folder.unclickable ?? false }),
+            ...(ov.finish !== undefined && { finish: folder.finish ?? null }),
           };
           if (Object.keys(patch).length) push({ op: 'update', id: to, patch });
           if (ov.position || ov.rotation) push({ op: 'move', id: to, to: [...folder.transform.position], rotation: [...folder.transform.rotation] });
@@ -77,6 +91,7 @@ export function duplicateOps(doc: Doc, ids: readonly string[]): { ops: Op[]; cop
           ...(ov.material !== undefined && { material: orig.material }),
           ...(ov.grain !== undefined && { grain: orig.grain }),
           ...(ov.shape && { shape: { params: structuredClone(orig.shape.params) } }),
+          ...(ov.finish !== undefined && { finish: orig.finish ?? null }),
         };
         if (Object.keys(patch).length) push({ op: 'update', id: to, patch });
         if (ov.position || ov.rotation) push({ op: 'move', id: to, to: [...orig.transform.position], rotation: [...orig.transform.rotation] });

@@ -27,7 +27,10 @@ export function deserialize(text: string): Doc {
  * doc. Throws ModelError with a readable reason.
  */
 export function upgradeDoc(raw: unknown): Doc {
+  // Plugin versions at save time, read before anything replaces them.
+  const saved = { ...((raw as { pluginVersions?: Record<string, number> } | null)?.pluginVersions ?? {}) };
   const migrated = migratePluginParams(migrateDoc(raw));
+  const rawVersion = (raw as { version: number }).version;
   const parsed = DocSchema.safeParse(migrated);
   if (!parsed.success) {
     throw new ModelError(`file doesn't match the model schema — ${parsed.error.issues.slice(0, 3).map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`);
@@ -35,14 +38,15 @@ export function upgradeDoc(raw: unknown): Doc {
   const doc = { ...parsed.data, pluginVersions: pluginVersions() };
   try {
     // Before v4, generated joints were metadata only; before v6, generators made no motions (drawers
-    // that slide); before v7, no folders (each drawer's parts). Regenerate so all match what the
-    // generator makes now. Joint cuts are derived data: re-derive them.
-    if ((raw as { version: number }).version < 7) {
-      for (const asm of Object.values(doc.assemblies)) {
-        if (!asm.generator || !generators.has(asm.generator.type)) continue;
-        asm.generator.params = generators.parse(asm.generator.type, asm.generator.params);
-        regenerate(doc, asm.id);
-      }
+    // that slide); before v7, no folders (each drawer's parts). And a generator newer than the one
+    // that saved the file may make different parts (carcass v2: door folders). Regenerate those so
+    // they match what the generator makes now. Joint cuts are derived data: re-derive them.
+    for (const asm of Object.values(doc.assemblies)) {
+      if (!asm.generator || !generators.has(asm.generator.type)) continue;
+      const type = asm.generator.type;
+      if (rawVersion >= 7 && (saved[`generator:${type}`] ?? 1) >= generators.get(type).version) continue;
+      asm.generator.params = generators.parse(type, asm.generator.params);
+      regenerate(doc, asm.id);
     }
     syncJoints(doc);
   } catch (err) {

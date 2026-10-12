@@ -1,10 +1,12 @@
 import { z } from 'zod';
 import { features, generators, motions, PluginError, shapes } from '../plugins';
+import { decorInfo, isDecor } from './decor';
 import { descendants, entityKind, ModelError, nextFeatureId, nextId, parentIndex } from './doc';
-import { captureOverride, deleteGeneratedPart, generatedOwner, regenerate } from './generate';
+import { swatchOf } from './finishes';
+import { captureOverride, deleteGeneratedPart, generatedBase, generatedOwner, regenerate } from './generate';
 import { syncJoints } from './joinery';
 import { motionName, pruneMotions } from './motion';
-import { Annotation, AnnotationTarget, Feature, Grain, Id, Joint, JointType, Material, Override, Params, Rotation, Variable, Vec3, type Assembly, type Doc, type Part } from './schema';
+import { Annotation, AnnotationTarget, Feature, Finish, Grain, Id, Joint, JointType, Lighting, LightingPreset, Material, Override, Params, Rotation, Variable, Vec3, ViewCamera, ViewFields, ViewFrame, ViewFrom, type Assembly, type Doc, type Part, type View } from './schema';
 import { validateDoc } from './validate';
 import { setBinding, syncBindings, unbindVariable } from './variables';
 import { eulerXYZ, IDENTITY, mul, nodeAffine, toFrame, transpose } from './world';
@@ -31,17 +33,35 @@ export function motionEntity<T extends z.ZodType, P extends z.ZodType>(type: T, 
 type MotionEntity = ReturnType<typeof motionEntity>;
 
 /**
- * Builds the op schema around the given shape / feature / generator / motion ref schemas. The model
- * uses opaque `{ type, params }` refs (the registry validates params); the AI tool schema
- * plugs in per-plugin unions so tool docs come straight from the registry (ai/tools.ts).
+ * A decor entity (model/decor.ts): a room piece, prop or hardware — a decor shape, no material (its
+ * looks are in its shape params). Default name: the shape's label.
  */
-export function makeOpSchema<S extends z.ZodType, F extends z.ZodType, G extends z.ZodType, M extends MotionEntity | z.ZodDiscriminatedUnion<MotionEntity[]>>(refs: {
-  shape: S;
-  feature: F;
-  generator: G;
-  motion: M;
-}) {
-  const entity = z.discriminatedUnion('kind', [
+function decorEntity<D extends z.ZodType>(shape: D) {
+  return z.object({
+    kind: z.literal('decor'),
+    id: Id.optional(),
+    name: z.string().optional(),
+    transform: TransformInput.default(identityInput),
+    /** Texture direction (a floor's planks, a rug). */
+    grain: Grain.default('none'),
+    shape,
+  });
+}
+
+/**
+ * Builds the op schema around the given shape / feature / generator / motion / decor ref schemas.
+ * The model uses opaque `{ type, params }` refs (the registry validates params); the AI tool schema
+ * plugs in per-plugin unions so tool docs come straight from the registry (ai/tools.ts). Without a
+ * `decor` ref (no decor shapes to offer) there's no decor entity.
+ */
+export function makeOpSchema<
+  S extends z.ZodType,
+  F extends z.ZodType,
+  G extends z.ZodType,
+  M extends MotionEntity | z.ZodDiscriminatedUnion<MotionEntity[]>,
+  D extends z.ZodType,
+>(refs: { shape: S; feature: F; generator: G; motion: M; decor?: D | undefined }) {
+  const common = [
     z.object({
       kind: z.literal('part'),
       id: Id.optional(),
@@ -51,6 +71,7 @@ export function makeOpSchema<S extends z.ZodType, F extends z.ZodType, G extends
       transform: TransformInput.default(identityInput),
       shape: refs.shape,
       features: z.array(refs.feature).default(() => []),
+      finish: Finish.optional(),
     }),
     /** A blockout placeholder (schema.ts `Part.block`): a box of `size` [x, y, z], no material. */
     z.object({
@@ -68,6 +89,7 @@ export function makeOpSchema<S extends z.ZodType, F extends z.ZodType, G extends
       generator: refs.generator.optional(),
       /** Saved per-role edits, including roles not currently produced by the generator. */
       overrides: z.record(z.string(), Override).optional(),
+      finish: Finish.optional(),
     }),
     z.object({
       kind: z.literal('joint'),
@@ -86,7 +108,10 @@ export function makeOpSchema<S extends z.ZodType, F extends z.ZodType, G extends
     }),
     Variable.extend({ kind: z.literal('variable'), unit: Variable.shape.unit.default('length') }),
     refs.motion,
-  ]);
+    /** A presentation view (A9): a camera or a frame, what opens or hides, a caption. */
+    ViewFields.extend({ kind: z.literal('view'), id: Id.optional() }),
+  ] as const;
+  const entity = refs.decor ? z.discriminatedUnion('kind', [...common, decorEntity(refs.decor)] as const) : z.discriminatedUnion('kind', common);
 
   return z.discriminatedUnion('op', [
     z.object({ op: z.literal('add'), entity, parent: Id.nullable().optional(), index: z.int().nonnegative().optional() }),
@@ -109,6 +134,8 @@ export function makeOpSchema<S extends z.ZodType, F extends z.ZodType, G extends
     z.object({ op: z.literal('removeFeature'), part: Id, feature: Id }),
     /** Binds a part / assembly field to a formula over variables; null unbinds (the value stays). */
     z.object({ op: z.literal('bind'), node: Id, path: z.string().min(1), expr: z.union([z.string().min(1), z.number()]).nullable() }),
+    /** Presentation settings (A9): `lighting` replaces the saved lighting whole, `eyeHeight` the walk height; null clears either. */
+    z.object({ op: z.literal('setPresentation'), lighting: Lighting.nullable().optional(), eyeHeight: z.int().positive().nullable().optional() }),
   ]);
 }
 
@@ -117,9 +144,11 @@ export const Op = makeOpSchema({
   feature: FeatureInput,
   generator: z.object({ type: z.string(), params: Params }),
   motion: motionEntity(z.string().min(1), Params.default(() => ({}))),
+  decor: z.object({ type: z.string(), params: Params }),
 });
 export type Op = z.input<typeof Op>;
 
+/** `finish: null` clears a node's or material's finish (back to what it inherits or infers). */
 const PartPatch = z.strictObject({
   hidden: z.boolean().optional(),
   unclickable: z.boolean().optional(),
@@ -127,9 +156,16 @@ const PartPatch = z.strictObject({
   material: Id.optional(),
   grain: Grain.optional(),
   shape: z.strictObject({ type: z.string().optional(), params: Params.optional() }).optional(),
+  finish: Finish.nullable().optional(),
 });
-const AssemblyPatch = z.strictObject({ name: z.string().optional(), hidden: z.boolean().optional(), unclickable: z.boolean().optional(), params: Params.optional() });
-const MaterialPatch = Material.omit({ id: true }).partial().strict();
+const AssemblyPatch = z.strictObject({
+  name: z.string().optional(),
+  hidden: z.boolean().optional(),
+  unclickable: z.boolean().optional(),
+  params: Params.optional(),
+  finish: Finish.nullable().optional(),
+});
+const MaterialPatch = Material.omit({ id: true }).partial().extend({ finish: Finish.nullable().optional() }).strict();
 const JointPatch = Joint.pick({ type: true, parts: true, params: true }).partial().strict();
 const AnnotationPatch = Annotation.omit({ id: true }).partial().strict();
 const VariablePatch = Variable.omit({ id: true }).partial().strict();
@@ -139,6 +175,29 @@ const MotionPatch = z.strictObject({
   type: z.string().min(1).optional(),
   params: Params.optional(),
   nodes: z.array(Id).min(1).optional(),
+});
+/**
+ * A view's patch: null clears a field. `frame` merges into the view's frame (null clears azimuth /
+ * elevation / distance); a view keeps a camera or a frame, so giving one replaces the other.
+ */
+const ViewPatch = z.strictObject({
+  name: z.string().min(1).optional(),
+  camera: ViewCamera.nullable().optional(),
+  frame: z
+    .strictObject({
+      nodes: z.array(Id).optional(),
+      from: ViewFrom.optional(),
+      azimuth: z.number().nullable().optional(),
+      elevation: z.number().min(-30).max(90).nullable().optional(),
+      distance: z.int().positive().nullable().optional(),
+    })
+    .nullable()
+    .optional(),
+  mode: z.enum(['orbit', 'walk']).nullable().optional(),
+  open: z.array(Id).nullable().optional(),
+  hide: z.array(Id).nullable().optional(),
+  caption: z.string().max(400).nullable().optional(),
+  lighting: LightingPreset.nullable().optional(),
 });
 
 /** Length variables hold whole 1/64ths like every other length. */
@@ -190,6 +249,8 @@ function add(d: Doc, op: Extract<z.output<typeof Op>, { op: 'add' }>): void {
   const e = op.entity;
   switch (e.kind) {
     case 'part': {
+      const decor = decorInfo(e.shape.type);
+      if (decor) throw new ModelError(`"${e.shape.type}" is a decor shape (${decor.label.toLowerCase()}): add it with kind "decor" — decor has no material`);
       const id = claimId(d, e.id, 'p');
       const part: Part = {
         id,
@@ -199,6 +260,7 @@ function add(d: Doc, op: Extract<z.output<typeof Op>, { op: 'add' }>): void {
         transform: e.transform,
         shape: { type: e.shape.type, params: shapes.parse(e.shape.type, e.shape.params) },
         features: [],
+        ...(e.finish && { finish: e.finish }),
       };
       for (const f of e.features) {
         part.features.push({ id: f.id ?? nextFeatureId(part), type: f.type, params: features.parse(f.type, f.params) });
@@ -222,6 +284,21 @@ function add(d: Doc, op: Extract<z.output<typeof Op>, { op: 'add' }>): void {
       attach(d, id, op.parent, op.index);
       return;
     }
+    case 'decor': {
+      const decor = decorInfo(e.shape.type);
+      if (!decor) throw new ModelError(`"${e.shape.type}" isn't a decor shape (room pieces, props, hardware); add stock parts with kind "part"`);
+      const id = claimId(d, e.id, 'p');
+      d.parts[id] = {
+        id,
+        name: e.name ?? numberedName(d, decor.label),
+        grain: e.grain,
+        transform: e.transform,
+        shape: { type: e.shape.type, params: shapes.parse(e.shape.type, e.shape.params) },
+        features: [],
+      };
+      attach(d, id, op.parent, op.index);
+      return;
+    }
     case 'assembly': {
       const id = claimId(d, e.id, 'a');
       if (e.overrides && !e.generator) throw new ModelError('assembly overrides require a generator');
@@ -233,6 +310,7 @@ function add(d: Doc, op: Extract<z.output<typeof Op>, { op: 'add' }>): void {
         ...(e.generator && {
           generator: { type: e.generator.type, params: generators.parse(e.generator.type, e.generator.params), overrides: structuredClone(e.overrides ?? {}) },
         }),
+        ...(e.finish && { finish: e.finish }),
       };
       attach(d, id, op.parent, op.index);
       if (e.generator) regenerate(d, id);
@@ -265,7 +343,92 @@ function add(d: Doc, op: Extract<z.output<typeof Op>, { op: 'add' }>): void {
       d.motions[id] = { id, ...(e.name && { name: e.name }), type: e.type, nodes: [...e.nodes], params: motions.parse(e.type, e.params) };
       return;
     }
+    case 'view': {
+      const id = claimId(d, e.id, 'view');
+      const { kind: _kind, id: _id, ...fields } = e;
+      const view: View = { id, ...fields };
+      checkView(d, view);
+      const p = (d.presentation ??= { views: [] });
+      p.views.splice(Math.min(op.index ?? p.views.length, p.views.length), 0, view);
+      return;
+    }
   }
+}
+
+/** A view frames, opens and hides what exists, and has a camera or a frame (not both). */
+function checkView(d: Doc, v: View): void {
+  if (!!v.camera === !!v.frame) throw new ModelError(`view "${v.name}": ${v.camera ? 'give a camera or a frame, not both' : 'give it a camera or a frame'}`);
+  const node = (id: string) => !!d.parts[id] || !!d.assemblies[id];
+  for (const id of v.frame?.nodes ?? []) if (!node(id)) throw new ModelError(`view "${v.name}": no part or folder "${id}" to frame`);
+  for (const id of v.open ?? []) if (!node(id) && !d.motions[id]) throw new ModelError(`view "${v.name}": no animation, part or folder "${id}" to open`);
+  for (const id of v.hide ?? []) if (!node(id)) throw new ModelError(`view "${v.name}": no part or folder "${id}" to hide`);
+}
+
+const viewIndex = (d: Doc, id: string) => d.presentation?.views.findIndex((v) => v.id === id) ?? -1;
+
+function updateView(d: Doc, id: string, rawPatch: Record<string, unknown>): void {
+  const patch = parsePatch(ViewPatch, rawPatch);
+  const views = d.presentation!.views;
+  const i = viewIndex(d, id);
+  const v: View = { ...views[i]! };
+  const set = <K extends keyof View>(k: K, value: View[K] | null | undefined) => {
+    if (value === null) delete v[k];
+    else if (value !== undefined) v[k] = value;
+  };
+  if (patch.camera && patch.frame) throw new ModelError(`view "${v.name}": give a camera or a frame, not both`);
+  if (patch.name !== undefined) v.name = patch.name;
+  if (patch.camera) delete v.frame;
+  set('camera', patch.camera);
+  if (patch.frame === null) delete v.frame;
+  else if (patch.frame) {
+    const merged: Record<string, unknown> = { ...(v.frame ?? {}), ...patch.frame };
+    for (const [k, x] of Object.entries(merged)) if (x === null) delete merged[k];
+    v.frame = ViewFrame.parse(merged);
+    delete v.camera;
+  }
+  set('mode', patch.mode);
+  set('open', patch.open);
+  set('hide', patch.hide);
+  set('caption', patch.caption);
+  set('lighting', patch.lighting);
+  checkView(d, v);
+  views[i] = v;
+}
+
+function moveView(d: Doc, op: Extract<z.output<typeof Op>, { op: 'move' }>): void {
+  const views = d.presentation!.views;
+  const v = views[viewIndex(d, op.id)]!;
+  if (op.to || op.by || op.rotation || op.parent !== undefined || op.keepWorld) {
+    throw new ModelError(`"${v.name}" is a presentation view: move {id, index} reorders the tour; change its camera or frame with update`);
+  }
+  if (op.index === undefined) throw new ModelError('move a view with an index (its place in the tour, 0 = first)');
+  views.splice(views.indexOf(v), 1);
+  views.splice(Math.min(op.index, views.length), 0, v);
+}
+
+/**
+ * Keeps views in step with the model after a change: ids they open, hide or frame that are gone
+ * drop out (an emptied open / hide list goes; a frame left with no nodes frames the whole model),
+ * and a presentation left with nothing in it goes.
+ */
+export function prunePresentation(d: Doc): void {
+  const p = d.presentation;
+  if (!p) return;
+  const node = (id: string) => !!d.parts[id] || !!d.assemblies[id];
+  p.views = p.views.map((v) => {
+    const open = v.open?.filter((id) => node(id) || !!d.motions[id]);
+    const hide = v.hide?.filter(node);
+    const nodes = v.frame?.nodes.filter(node);
+    if (open?.length === v.open?.length && hide?.length === v.hide?.length && nodes?.length === v.frame?.nodes.length) return v;
+    const out: View = { ...v };
+    if (open?.length) out.open = open;
+    else delete out.open;
+    if (hide?.length) out.hide = hide;
+    else delete out.hide;
+    if (v.frame && nodes) out.frame = { ...v.frame, nodes };
+    return out;
+  });
+  if (!p.views.length && !p.lighting && p.eyeHeight === undefined) delete d.presentation;
 }
 
 /** What a motion moves must exist when it's set (deleting it later just drops it from the motion). */
@@ -281,6 +444,16 @@ function generatedMotion(d: Doc, id: string): ModelError | null {
   return new ModelError(`${motionName(d, m)}'s animation comes with "${asm?.name ?? 'its cabinet'}"; change its params instead`);
 }
 
+/** A new prop's default name: its label numbered past every node already named that way (`Bar stool 2`). */
+export function numberedName(d: Doc, label: string): string {
+  let max = 0;
+  for (const node of [...Object.values(d.parts), ...Object.values(d.assemblies)]) {
+    const rest = node.name.startsWith(`${label} `) ? node.name.slice(label.length + 1) : '';
+    if (/^\d+$/.test(rest)) max = Math.max(max, Number(rest));
+  }
+  return `${label} ${max + 1}`;
+}
+
 /** `b3` → "Block 3"; other ids → "Block". */
 export const blockName = (id: string) => `Block${/^b\d+$/.test(id) ? ` ${id.slice(1)}` : ''}`;
 
@@ -289,8 +462,12 @@ function update(d: Doc, id: string, rawPatch: Record<string, unknown>): void {
     case 'part': {
       const patch = parsePatch(PartPatch, rawPatch);
       const part = d.parts[id]!;
-      if (part.block && (patch.material !== undefined || patch.grain !== undefined || (patch.shape?.type ?? 'box') !== 'box')) {
+      if (part.block && (patch.material !== undefined || patch.grain !== undefined || patch.finish !== undefined || (patch.shape?.type ?? 'box') !== 'box')) {
         throw new ModelError(`"${part.name}" is a block (a placeholder): only its name and size change — build real parts in its place instead`);
+      }
+      const decor = isDecor(part);
+      if (decor && (patch.material !== undefined || patch.finish !== undefined)) {
+        throw new ModelError(`"${part.name}" is decor: it has no material or finish — its looks are in its shape params`);
       }
       const generated = generatedOwner(d, id) !== null;
       if (patch.name !== undefined) part.name = patch.name;
@@ -301,9 +478,16 @@ function update(d: Doc, id: string, rawPatch: Record<string, unknown>): void {
       if (patch.shape) {
         const type = patch.shape.type ?? part.shape.type;
         if (type !== part.shape.type && generated) throw new ModelError(`can't change the shape type of generated part "${part.name}"`);
+        if (!!decorInfo(type) !== decor) throw new ModelError(`can't change "${part.name}" between a stock part and decor; delete it and add the other kind`);
         const params = type === part.shape.type ? { ...part.shape.params, ...patch.shape.params } : (patch.shape.params ?? {});
         part.shape = { type, params: shapes.parse(type, params) };
       }
+      if (patch.finish === null) {
+        // A generated part goes back to what its generator gives it.
+        const base = generated ? generatedBase(d, id)?.finish : undefined;
+        if (base) part.finish = structuredClone(base);
+        else delete part.finish;
+      } else if (patch.finish) part.finish = patch.finish;
       if (generated) captureOverride(d, id);
       return;
     }
@@ -313,6 +497,8 @@ function update(d: Doc, id: string, rawPatch: Record<string, unknown>): void {
       if (patch.name !== undefined) asm.name = patch.name;
       if (patch.hidden !== undefined) asm.hidden = patch.hidden;
       if (patch.unclickable !== undefined) asm.unclickable = patch.unclickable;
+      if (patch.finish === null) delete asm.finish;
+      else if (patch.finish) asm.finish = patch.finish;
       if (patch.params) {
         const owner = generatedOwner(d, id);
         if (owner) throw new ModelError(`"${asm.name}" is generated by "${owner.name}"; change that assembly's params instead`);
@@ -324,8 +510,14 @@ function update(d: Doc, id: string, rawPatch: Record<string, unknown>): void {
       return;
     }
     case 'material': {
-      const patch = parsePatch(MaterialPatch, rawPatch);
-      Object.assign(d.materials[id]!, patch);
+      const { finish, ...patch } = parsePatch(MaterialPatch, rawPatch);
+      const m = Object.assign(d.materials[id]!, patch);
+      if (finish === null) delete m.finish;
+      else if (finish) {
+        m.finish = finish;
+        // The editor draws a material in its color: a new finish brings its swatch along.
+        if (patch.color === undefined) m.color = swatchOf(finish);
+      }
       // Generated parts size themselves from material thickness.
       for (const asm of Object.values(d.assemblies)) {
         if (asm.generator && generators.get(asm.generator.type).materialRefs(asm.generator.params).includes(id)) regenerate(d, asm.id);
@@ -364,6 +556,8 @@ function update(d: Doc, id: string, rawPatch: Record<string, unknown>): void {
       else if (patch.name !== undefined) m.name = patch.name;
       return;
     }
+    case 'view':
+      return updateView(d, id, rawPatch);
     case null:
       throw new ModelError(`nothing with id "${id}"`);
   }
@@ -414,6 +608,9 @@ function remove(d: Doc, id: string): void {
       delete d.motions[id];
       return;
     }
+    case 'view':
+      d.presentation!.views.splice(viewIndex(d, id), 1);
+      return;
     case null:
       throw new ModelError(`nothing with id "${id}"`);
   }
@@ -449,6 +646,7 @@ function keepWorld(d: Doc, node: Part | Assembly, parent: string | null): void {
 }
 
 function move(d: Doc, op: Extract<z.output<typeof Op>, { op: 'move' }>): void {
+  if (entityKind(d, op.id) === 'view') return moveView(d, op);
   const node = d.parts[op.id] ?? d.assemblies[op.id];
   if (!node) throw new ModelError(`no part or assembly "${op.id}"`);
   const generated = generatedOwner(d, op.id) !== null;
@@ -489,6 +687,7 @@ function applyOne(d: Doc, op: z.output<typeof Op>): void {
       return move(d, op);
     case 'addFeature': {
       const part = requirePart(d, op.part);
+      if (isDecor(part)) throw new ModelError(`"${part.name}" is decor: it takes no features (holes, profiles, cuts)`);
       const id = op.feature.id ?? nextFeatureId(part);
       if (part.features.some((f) => f.id === id)) throw new ModelError(`part "${part.name}" already has feature ${id}`);
       const params = features.parse(op.feature.type, op.feature.params);
@@ -512,7 +711,20 @@ function applyOne(d: Doc, op: z.output<typeof Op>): void {
     }
     case 'bind':
       return setBinding(d, op.node, op.path, op.expr === null ? null : String(op.expr));
+    case 'setPresentation':
+      return setPresentation(d, op);
   }
+}
+
+/** Saves presentation settings; a doc whose presentation holds nothing drops it (no empty `presentation: {views: []}`). */
+function setPresentation(d: Doc, op: Extract<z.output<typeof Op>, { op: 'setPresentation' }>): void {
+  const p = d.presentation ?? { views: [] };
+  if (op.lighting === null) delete p.lighting;
+  else if (op.lighting !== undefined) p.lighting = op.lighting;
+  if (op.eyeHeight === null) delete p.eyeHeight;
+  else if (op.eyeHeight !== undefined) p.eyeHeight = op.eyeHeight;
+  if (!p.views.length && !p.lighting && p.eyeHeight === undefined) delete d.presentation;
+  else d.presentation = p;
 }
 
 export function applyOps(doc: Doc, ops: readonly Op[]): OpResult {
@@ -533,6 +745,7 @@ export function applyOps(doc: Doc, ops: readonly Op[]): OpResult {
   try {
     syncBindings(doc, d);
     pruneMotions(d);
+    prunePresentation(d);
     syncJoints(d);
     validateDoc(d);
   } catch (err) {

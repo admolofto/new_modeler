@@ -29,6 +29,8 @@ export interface Drive {
   axis?: V3 | undefined;
   /** Growing also moves the part (shape drives) or assembly (generator drives) origin by axis × growth. */
   moveOrigin?: boolean | undefined;
+  /** A coordinate, not a size (a room's wall position): snapping offers no "size = …". */
+  kind?: 'position' | undefined;
 }
 
 export type Constraint = { kind: 'line'; dir: V3 } | { kind: 'plane'; u: V3; v: V3 };
@@ -52,22 +54,26 @@ function ownerParams(doc: Doc, part: Part, owner: DriveOwner): Record<string, un
   return doc.assemblies[owner.asm]?.generator?.params ?? {};
 }
 
-/** The generator param a face of a generated part drives, if its generator claims that face. */
-function generatorDrive(doc: Doc, part: Part, handle: Handle): Drive | null {
+/**
+ * The generator param a face of a generated part drives, if its generator claims that face; 'locked'
+ * when it doesn't and the generator keeps its parts as made (`lockedParts`: no overrides by dragging).
+ */
+function generatorDrive(doc: Doc, part: Part, handle: Handle): Drive | 'locked' | null {
   const asm = generatedOwner(doc, part.id);
-  if (!asm || handle.kind !== 'face' || handle.source !== 'shape' || !handle.normal) return null;
+  if (!asm) return null;
   const def = generators.get(asm.generator!.type);
-  if (!def.faceDrive) return null;
+  const fallback = def.lockedParts ? 'locked' : null;
+  if (handle.kind !== 'face' || handle.source !== 'shape' || !handle.normal || !def.faceDrive) return fallback;
   const R = rotation(part.transform.rotation);
   const n = rotate(R, handle.normal);
   const axis = ([0, 1, 2] as const).find((k) => Math.abs(n[k]) > 1 - 1e-9);
-  if (axis === undefined) return null;
+  if (axis === undefined) return fallback;
   const plane = Math.round(apply({ m: R, t: part.transform.position }, handle.points[0]!)[axis]);
   const gd = def.faceDrive(asm.generator!.params, { role: part.role!, axis, max: n[axis] > 0, plane });
-  if (!gd) return null;
+  if (!gd) return fallback;
   const value = getPath(asm.generator!.params, gd.param);
-  if (typeof value !== 'number') return null;
-  return { owner: { kind: 'generator', asm: asm.id }, path: gd.param, label: gd.label, value, axis: scale(handle.normal, gd.sign), moveOrigin: gd.moveOrigin };
+  if (typeof value !== 'number') return fallback;
+  return { owner: { kind: 'generator', asm: asm.id }, path: gd.param, label: gd.label, value, axis: scale(handle.normal, gd.sign), moveOrigin: gd.moveOrigin, kind: gd.kind };
 }
 
 function constraintOf(handle: Handle, drives: Drive[]): Constraint | null {
@@ -88,7 +94,9 @@ export function handleDrives(doc: Doc, target: Target): HandleDrives | null {
   if (!r?.handle) return null;
   const { part, handle } = r;
   const gen = generatorDrive(doc, part, handle);
-  const drives: Drive[] = gen
+  const drives: Drive[] = gen === 'locked'
+    ? []
+    : gen
     ? [gen]
     : handle.drives.flatMap((d) => {
         const owner: DriveOwner = d.target === 'shape' ? { kind: 'shape' } : { kind: 'feature', id: d.target };

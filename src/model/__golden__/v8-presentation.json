@@ -1,0 +1,4351 @@
+{
+  "version": 8,
+  "pluginVersions": {
+    "shape:box": 1,
+    "shape:outline": 1,
+    "shape:pull": 1,
+    "shape:wall": 1,
+    "shape:slab": 1,
+    "shape:trim": 1,
+    "shape:window": 1,
+    "shape:doorLeaf": 1,
+    "shape:pendant": 1,
+    "shape:recessedLight": 1,
+    "shape:stripLight": 1,
+    "shape:applianceBody": 1,
+    "shape:applianceDoor": 1,
+    "shape:rangeHood": 1,
+    "shape:barStool": 1,
+    "shape:chair": 1,
+    "shape:diningTable": 1,
+    "shape:rug": 1,
+    "shape:plant": 1,
+    "shape:bowl": 1,
+    "shape:books": 1,
+    "shape:vase": 1,
+    "feature:hole": 1,
+    "feature:pocket": 1,
+    "feature:edgeProfile": 1,
+    "feature:dado": 1,
+    "generator:carcass": 2,
+    "generator:room": 1,
+    "generator:fridge": 1,
+    "generator:range": 1,
+    "generator:dishwasher": 1,
+    "generator:microwave": 1,
+    "motion:hinge": 1,
+    "motion:slide": 1
+  },
+  "materials": {
+    "ply-3-4": {
+      "id": "ply-3-4",
+      "name": "3/4\" plywood",
+      "thickness": 46,
+      "color": "#d9b98b",
+      "stock": "sheet",
+      "finish": {
+        "preset": "wood:birch-ply"
+      }
+    },
+    "ply-1-2": {
+      "id": "ply-1-2",
+      "name": "1/2\" plywood",
+      "thickness": 30,
+      "color": "#dcc095",
+      "stock": "sheet",
+      "finish": {
+        "preset": "wood:birch-ply"
+      }
+    },
+    "ply-1-4": {
+      "id": "ply-1-4",
+      "name": "1/4\" plywood",
+      "thickness": 14,
+      "color": "#e6cfa6",
+      "stock": "sheet",
+      "finish": {
+        "preset": "wood:birch-ply"
+      }
+    },
+    "maple-4-4": {
+      "id": "maple-4-4",
+      "name": "4/4 maple (S4S 3/4\")",
+      "thickness": 48,
+      "color": "#ecd9b0",
+      "stock": "solid",
+      "finish": {
+        "preset": "wood:maple"
+      }
+    },
+    "quartz-3cm": {
+      "id": "quartz-3cm",
+      "name": "3 cm white quartz",
+      "thickness": 76,
+      "color": "#eeece8",
+      "stock": "slab",
+      "finish": {
+        "preset": "stone:quartz-white"
+      }
+    }
+  },
+  "parts": {
+    "tabletop": {
+      "id": "tabletop",
+      "name": "Tabletop",
+      "material": "maple-4-4",
+      "grain": "x",
+      "transform": {
+        "position": [
+          -48,
+          2208,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "outline",
+        "params": {
+          "axis": "y",
+          "thickness": 48,
+          "points": [
+            {
+              "id": "bl",
+              "at": [
+                0,
+                0
+              ],
+              "r": 64
+            },
+            {
+              "id": "br",
+              "at": [
+                2400,
+                0
+              ],
+              "r": 64
+            },
+            {
+              "id": "fr",
+              "at": [
+                2400,
+                1600
+              ],
+              "r": 64
+            },
+            {
+              "id": "fl",
+              "at": [
+                0,
+                1600
+              ],
+              "r": 64
+            }
+          ]
+        }
+      },
+      "features": [
+        {
+          "id": "f1",
+          "type": "edgeProfile",
+          "params": {
+            "edges": [
+              "edge:top-bl",
+              "edge:top-br",
+              "edge:top-fr",
+              "edge:top-fl"
+            ],
+            "profile": "roundover",
+            "r": 16
+          }
+        }
+      ]
+    },
+    "door": {
+      "id": "door",
+      "name": "Door",
+      "material": "ply-3-4",
+      "grain": "y",
+      "transform": {
+        "position": [
+          2688,
+          256,
+          384
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 1136,
+          "y": 1936,
+          "z": 46
+        }
+      },
+      "features": [
+        {
+          "id": "f1",
+          "type": "edgeProfile",
+          "params": {
+            "edges": [
+              "edge:top-front",
+              "edge:bottom-front",
+              "edge:front-left",
+              "edge:front-right"
+            ],
+            "profile": "roundover",
+            "r": 8
+          }
+        },
+        {
+          "id": "f2",
+          "type": "hole",
+          "params": {
+            "face": "face:back",
+            "at": [
+              57,
+              192
+            ],
+            "d": 88,
+            "depth": 32
+          }
+        },
+        {
+          "id": "f3",
+          "type": "hole",
+          "params": {
+            "face": "face:back",
+            "at": [
+              57,
+              1744
+            ],
+            "d": 88,
+            "depth": 32
+          }
+        }
+      ]
+    },
+    "a1.side-left": {
+      "id": "a1.side-left",
+      "role": "side-left",
+      "name": "Left side",
+      "material": "ply-3-4",
+      "grain": "y",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 46,
+          "y": 2208,
+          "z": 1536
+        }
+      },
+      "features": [
+        {
+          "id": "f1",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              128,
+              640
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f2",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              128,
+              720
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f3",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              128,
+              800
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f4",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              128,
+              880
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f5",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              128,
+              960
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f6",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              128,
+              1040
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f7",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              128,
+              1120
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f8",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              128,
+              1200
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f9",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              128,
+              1280
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f10",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              128,
+              1360
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f11",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              128,
+              1440
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f12",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              128,
+              1520
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f13",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              128,
+              1600
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f14",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              1408,
+              640
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f15",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              1408,
+              720
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f16",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              1408,
+              800
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f17",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              1408,
+              880
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f18",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              1408,
+              960
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f19",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              1408,
+              1040
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f20",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              1408,
+              1120
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f21",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              1408,
+              1200
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f22",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              1408,
+              1280
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f23",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              1408,
+              1360
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f24",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              1408,
+              1440
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f25",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              1408,
+              1520
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f26",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              1408,
+              1600
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        }
+      ],
+      "joinery": [
+        {
+          "id": "a1_j_bottom-left",
+          "type": "dado",
+          "params": {
+            "face": "face:right",
+            "from": [
+              14,
+              256
+            ],
+            "to": [
+              1536,
+              302
+            ],
+            "depth": 16
+          },
+          "joint": "a1.j.bottom-left"
+        },
+        {
+          "id": "a1_j_top-left",
+          "type": "dado",
+          "params": {
+            "face": "face:right",
+            "from": [
+              14,
+              2162
+            ],
+            "to": [
+              1536,
+              2208
+            ],
+            "depth": 16
+          },
+          "joint": "a1.j.top-left"
+        },
+        {
+          "id": "a1_j_back-left",
+          "type": "dado",
+          "params": {
+            "face": "face:right",
+            "from": [
+              0,
+              256
+            ],
+            "to": [
+              14,
+              2208
+            ],
+            "depth": 24
+          },
+          "joint": "a1.j.back-left"
+        }
+      ]
+    },
+    "a1.side-right": {
+      "id": "a1.side-right",
+      "role": "side-right",
+      "name": "Right side",
+      "material": "ply-3-4",
+      "grain": "y",
+      "transform": {
+        "position": [
+          2258,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 46,
+          "y": 2208,
+          "z": 1536
+        }
+      },
+      "features": [
+        {
+          "id": "f1",
+          "type": "hole",
+          "params": {
+            "face": "face:right",
+            "at": [
+              768,
+              1536
+            ],
+            "d": 64
+          }
+        },
+        {
+          "id": "f2",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              128,
+              640
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f3",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              128,
+              720
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f4",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              128,
+              800
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f5",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              128,
+              880
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f6",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              128,
+              960
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f7",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              128,
+              1040
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f8",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              128,
+              1120
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f9",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              128,
+              1200
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f10",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              128,
+              1280
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f11",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              128,
+              1360
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f12",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              128,
+              1440
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f13",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              128,
+              1520
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f14",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              128,
+              1600
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f15",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              1408,
+              640
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f16",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              1408,
+              720
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f17",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              1408,
+              800
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f18",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              1408,
+              880
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f19",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              1408,
+              960
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f20",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              1408,
+              1040
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f21",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              1408,
+              1120
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f22",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              1408,
+              1200
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f23",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              1408,
+              1280
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f24",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              1408,
+              1360
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f25",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              1408,
+              1440
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f26",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              1408,
+              1520
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        },
+        {
+          "id": "f27",
+          "type": "hole",
+          "params": {
+            "face": "face:left",
+            "at": [
+              1408,
+              1600
+            ],
+            "d": 13,
+            "depth": 24
+          }
+        }
+      ],
+      "joinery": [
+        {
+          "id": "a1_j_bottom-right",
+          "type": "dado",
+          "params": {
+            "face": "face:left",
+            "from": [
+              14,
+              256
+            ],
+            "to": [
+              1536,
+              302
+            ],
+            "depth": 16
+          },
+          "joint": "a1.j.bottom-right"
+        },
+        {
+          "id": "a1_j_top-right",
+          "type": "dado",
+          "params": {
+            "face": "face:left",
+            "from": [
+              14,
+              2162
+            ],
+            "to": [
+              1536,
+              2208
+            ],
+            "depth": 16
+          },
+          "joint": "a1.j.top-right"
+        },
+        {
+          "id": "a1_j_back-right",
+          "type": "dado",
+          "params": {
+            "face": "face:left",
+            "from": [
+              0,
+              256
+            ],
+            "to": [
+              14,
+              2208
+            ],
+            "depth": 24
+          },
+          "joint": "a1.j.back-right"
+        }
+      ]
+    },
+    "a1.bottom": {
+      "id": "a1.bottom",
+      "role": "bottom",
+      "name": "Bottom",
+      "material": "ply-3-4",
+      "grain": "x",
+      "transform": {
+        "position": [
+          46,
+          256,
+          14
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 2212,
+          "y": 46,
+          "z": 1522
+        }
+      },
+      "features": []
+    },
+    "a1.top": {
+      "id": "a1.top",
+      "role": "top",
+      "name": "Top",
+      "material": "ply-3-4",
+      "grain": "x",
+      "transform": {
+        "position": [
+          46,
+          2162,
+          14
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 2212,
+          "y": 46,
+          "z": 1522
+        }
+      },
+      "features": []
+    },
+    "a1.back": {
+      "id": "a1.back",
+      "role": "back",
+      "name": "Back",
+      "material": "ply-1-4",
+      "grain": "y",
+      "transform": {
+        "position": [
+          46,
+          256,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 2212,
+          "y": 1952,
+          "z": 14
+        }
+      },
+      "features": []
+    },
+    "a1.kick": {
+      "id": "a1.kick",
+      "role": "kick",
+      "name": "Toe kick",
+      "material": "ply-3-4",
+      "grain": "x",
+      "transform": {
+        "position": [
+          46,
+          0,
+          1298
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 2212,
+          "y": 256,
+          "z": 46
+        }
+      },
+      "features": []
+    },
+    "a1.drawer-1-front": {
+      "id": "a1.drawer-1-front",
+      "role": "drawer-1-front",
+      "name": "Drawer 1 front",
+      "material": "ply-3-4",
+      "finish": {
+        "preset": "paint",
+        "color": "#2f4f3a"
+      },
+      "grain": "x",
+      "transform": {
+        "position": [
+          4,
+          1820,
+          1536
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 2296,
+          "y": 384,
+          "z": 46
+        }
+      },
+      "features": []
+    },
+    "a1.drawer-1-bottom": {
+      "id": "a1.drawer-1-bottom",
+      "role": "drawer-1-bottom",
+      "name": "Drawer 1 bottom",
+      "material": "ply-1-4",
+      "grain": "z",
+      "transform": {
+        "position": [
+          78,
+          1852,
+          46
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 2148,
+          "y": 14,
+          "z": 1458
+        }
+      },
+      "features": []
+    },
+    "a1.drawer-1-side-left": {
+      "id": "a1.drawer-1-side-left",
+      "role": "drawer-1-side-left",
+      "name": "Drawer 1 left side",
+      "material": "ply-3-4",
+      "grain": "z",
+      "transform": {
+        "position": [
+          78,
+          1866,
+          46
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 46,
+          "y": 264,
+          "z": 1458
+        }
+      },
+      "features": [],
+      "joinery": [
+        {
+          "id": "a1_j_drawer-1-back-left",
+          "type": "dado",
+          "params": {
+            "face": "face:right",
+            "from": [
+              0,
+              0
+            ],
+            "to": [
+              46,
+              264
+            ],
+            "depth": 23
+          },
+          "joint": "a1.j.drawer-1-back-left"
+        },
+        {
+          "id": "a1_j_drawer-1-sub-front-left",
+          "type": "dado",
+          "params": {
+            "face": "face:right",
+            "from": [
+              1412,
+              0
+            ],
+            "to": [
+              1458,
+              264
+            ],
+            "depth": 23
+          },
+          "joint": "a1.j.drawer-1-sub-front-left"
+        }
+      ]
+    },
+    "a1.drawer-1-side-right": {
+      "id": "a1.drawer-1-side-right",
+      "role": "drawer-1-side-right",
+      "name": "Drawer 1 right side",
+      "material": "ply-3-4",
+      "grain": "z",
+      "transform": {
+        "position": [
+          2180,
+          1866,
+          46
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 46,
+          "y": 264,
+          "z": 1458
+        }
+      },
+      "features": [],
+      "joinery": [
+        {
+          "id": "a1_j_drawer-1-back-right",
+          "type": "dado",
+          "params": {
+            "face": "face:left",
+            "from": [
+              0,
+              0
+            ],
+            "to": [
+              46,
+              264
+            ],
+            "depth": 23
+          },
+          "joint": "a1.j.drawer-1-back-right"
+        },
+        {
+          "id": "a1_j_drawer-1-sub-front-right",
+          "type": "dado",
+          "params": {
+            "face": "face:left",
+            "from": [
+              1412,
+              0
+            ],
+            "to": [
+              1458,
+              264
+            ],
+            "depth": 23
+          },
+          "joint": "a1.j.drawer-1-sub-front-right"
+        }
+      ]
+    },
+    "a1.drawer-1-back": {
+      "id": "a1.drawer-1-back",
+      "role": "drawer-1-back",
+      "name": "Drawer 1 back",
+      "material": "ply-3-4",
+      "grain": "x",
+      "transform": {
+        "position": [
+          124,
+          1866,
+          46
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 2056,
+          "y": 264,
+          "z": 46
+        }
+      },
+      "features": []
+    },
+    "a1.drawer-1-sub-front": {
+      "id": "a1.drawer-1-sub-front",
+      "role": "drawer-1-sub-front",
+      "name": "Drawer 1 sub-front",
+      "material": "ply-3-4",
+      "grain": "x",
+      "transform": {
+        "position": [
+          124,
+          1866,
+          1458
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 2056,
+          "y": 264,
+          "z": 46
+        }
+      },
+      "features": []
+    },
+    "a1.drawer-1-pull": {
+      "id": "a1.drawer-1-pull",
+      "role": "drawer-1-pull",
+      "name": "Drawer 1 pull",
+      "grain": "none",
+      "transform": {
+        "position": [
+          928,
+          1998,
+          1582
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "pull",
+        "params": {
+          "style": "bar",
+          "orientation": "h",
+          "finish": {
+            "preset": "metal:brushed-nickel"
+          }
+        }
+      },
+      "features": []
+    },
+    "a1.door-left": {
+      "id": "a1.door-left",
+      "role": "door-left",
+      "name": "Left door",
+      "material": "ply-3-4",
+      "finish": {
+        "preset": "paint",
+        "color": "#2f4f3a"
+      },
+      "grain": "y",
+      "transform": {
+        "position": [
+          4,
+          256,
+          1536
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 1144,
+          "y": 1556,
+          "z": 46
+        }
+      },
+      "features": [
+        {
+          "id": "f1",
+          "type": "hole",
+          "params": {
+            "face": "face:back",
+            "at": [
+              57,
+              224
+            ],
+            "d": 88,
+            "depth": 32
+          }
+        },
+        {
+          "id": "f2",
+          "type": "hole",
+          "params": {
+            "face": "face:back",
+            "at": [
+              57,
+              1332
+            ],
+            "d": 88,
+            "depth": 32
+          }
+        }
+      ]
+    },
+    "a1.door-left-pull": {
+      "id": "a1.door-left-pull",
+      "role": "door-left-pull",
+      "name": "Left door pull",
+      "grain": "none",
+      "transform": {
+        "position": [
+          1038,
+          1172,
+          1582
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "pull",
+        "params": {
+          "style": "bar",
+          "orientation": "v",
+          "finish": {
+            "preset": "metal:brushed-nickel"
+          }
+        }
+      },
+      "features": []
+    },
+    "a1.door-right": {
+      "id": "a1.door-right",
+      "role": "door-right",
+      "name": "Right door",
+      "material": "ply-3-4",
+      "finish": {
+        "preset": "paint",
+        "color": "#2f4f3a"
+      },
+      "grain": "y",
+      "transform": {
+        "position": [
+          1156,
+          256,
+          1536
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 1144,
+          "y": 1556,
+          "z": 46
+        }
+      },
+      "features": [
+        {
+          "id": "f1",
+          "type": "hole",
+          "params": {
+            "face": "face:back",
+            "at": [
+              1087,
+              224
+            ],
+            "d": 88,
+            "depth": 32
+          }
+        },
+        {
+          "id": "f2",
+          "type": "hole",
+          "params": {
+            "face": "face:back",
+            "at": [
+              1087,
+              1332
+            ],
+            "d": 88,
+            "depth": 32
+          }
+        }
+      ]
+    },
+    "a1.door-right-pull": {
+      "id": "a1.door-right-pull",
+      "role": "door-right-pull",
+      "name": "Right door pull",
+      "grain": "none",
+      "transform": {
+        "position": [
+          1238,
+          1172,
+          1582
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "pull",
+        "params": {
+          "style": "bar",
+          "orientation": "v",
+          "finish": {
+            "preset": "metal:brushed-nickel"
+          }
+        }
+      },
+      "features": []
+    },
+    "a1.shelf-1": {
+      "id": "a1.shelf-1",
+      "role": "shelf-1",
+      "name": "Shelf 1",
+      "material": "ply-3-4",
+      "grain": "x",
+      "transform": {
+        "position": [
+          48,
+          1038,
+          14
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 2208,
+          "y": 46,
+          "z": 1506
+        }
+      },
+      "features": []
+    },
+    "top": {
+      "id": "top",
+      "name": "Countertop",
+      "material": "quartz-3cm",
+      "grain": "none",
+      "transform": {
+        "position": [
+          -32,
+          2208,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "box",
+        "params": {
+          "x": 2368,
+          "y": 76,
+          "z": 1600
+        }
+      },
+      "features": []
+    },
+    "fridge1.body": {
+      "id": "fridge1.body",
+      "role": "body",
+      "name": "Body",
+      "grain": "none",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "applianceBody",
+        "params": {
+          "x": 2304,
+          "y": 4480,
+          "z": 1840,
+          "cavities": [
+            {
+              "id": "cav-fresh",
+              "min": [
+                96,
+                1597,
+                128
+              ],
+              "max": [
+                2208,
+                4384,
+                1840
+              ],
+              "axis": 2
+            },
+            {
+              "id": "cav-freezer",
+              "min": [
+                96,
+                320,
+                128
+              ],
+              "max": [
+                2208,
+                1405,
+                1840
+              ],
+              "axis": 2
+            }
+          ],
+          "details": [
+            {
+              "kind": "box",
+              "min": [
+                80,
+                2294,
+                112
+              ],
+              "max": [
+                2224,
+                2310,
+                1776
+              ],
+              "tag": "shelf"
+            },
+            {
+              "kind": "box",
+              "min": [
+                80,
+                2991,
+                112
+              ],
+              "max": [
+                2224,
+                3007,
+                1776
+              ],
+              "tag": "shelf"
+            },
+            {
+              "kind": "box",
+              "min": [
+                80,
+                3687,
+                112
+              ],
+              "max": [
+                2224,
+                3703,
+                1776
+              ],
+              "tag": "shelf"
+            },
+            {
+              "kind": "box",
+              "min": [
+                64,
+                32,
+                1824
+              ],
+              "max": [
+                2240,
+                192,
+                1872
+              ],
+              "tag": "vent"
+            }
+          ],
+          "finish": {
+            "preset": "metal:stainless"
+          },
+          "inner": {
+            "preset": "paint",
+            "color": "#eef0f1",
+            "roughness": 0.4
+          }
+        }
+      },
+      "features": []
+    },
+    "fridge1.door-left": {
+      "id": "fridge1.door-left",
+      "role": "door-left",
+      "name": "Left door",
+      "grain": "none",
+      "transform": {
+        "position": [
+          0,
+          1509,
+          1840
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "applianceDoor",
+        "params": {
+          "x": 1148,
+          "y": 2971,
+          "z": 144,
+          "window": null,
+          "finish": {
+            "preset": "metal:stainless"
+          },
+          "inner": {
+            "preset": "paint",
+            "color": "#eef0f1",
+            "roughness": 0.4
+          },
+          "glass": {
+            "preset": "lacquer",
+            "color": "#141517",
+            "roughness": 0.08
+          }
+        }
+      },
+      "features": []
+    },
+    "fridge1.door-left-pull": {
+      "id": "fridge1.door-left-pull",
+      "role": "door-left-pull",
+      "name": "Left door handle",
+      "grain": "none",
+      "transform": {
+        "position": [
+          996,
+          1905,
+          1984
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "pull",
+        "params": {
+          "style": "bar",
+          "length": 1337,
+          "size": 56,
+          "projection": 144,
+          "orientation": "v",
+          "finish": {
+            "preset": "metal:stainless"
+          }
+        }
+      },
+      "features": []
+    },
+    "fridge1.door-right": {
+      "id": "fridge1.door-right",
+      "role": "door-right",
+      "name": "Right door",
+      "grain": "none",
+      "transform": {
+        "position": [
+          1156,
+          1509,
+          1840
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "applianceDoor",
+        "params": {
+          "x": 1148,
+          "y": 2971,
+          "z": 144,
+          "window": null,
+          "finish": {
+            "preset": "metal:stainless"
+          },
+          "inner": {
+            "preset": "paint",
+            "color": "#eef0f1",
+            "roughness": 0.4
+          },
+          "glass": {
+            "preset": "lacquer",
+            "color": "#141517",
+            "roughness": 0.08
+          }
+        }
+      },
+      "features": []
+    },
+    "fridge1.door-right-pull": {
+      "id": "fridge1.door-right-pull",
+      "role": "door-right-pull",
+      "name": "Right door handle",
+      "grain": "none",
+      "transform": {
+        "position": [
+          1252,
+          1905,
+          1984
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "pull",
+        "params": {
+          "style": "bar",
+          "length": 1337,
+          "size": 56,
+          "projection": 144,
+          "orientation": "v",
+          "finish": {
+            "preset": "metal:stainless"
+          }
+        }
+      },
+      "features": []
+    },
+    "fridge1.freezer-front": {
+      "id": "fridge1.freezer-front",
+      "role": "freezer-front",
+      "name": "Freezer drawer front",
+      "grain": "none",
+      "transform": {
+        "position": [
+          0,
+          224,
+          1840
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "applianceDoor",
+        "params": {
+          "x": 2304,
+          "y": 1277,
+          "z": 144,
+          "window": null,
+          "finish": {
+            "preset": "metal:stainless"
+          },
+          "inner": {
+            "preset": "paint",
+            "color": "#eef0f1",
+            "roughness": 0.4
+          },
+          "glass": {
+            "preset": "lacquer",
+            "color": "#141517",
+            "roughness": 0.08
+          }
+        }
+      },
+      "features": []
+    },
+    "fridge1.freezer-bin": {
+      "id": "fridge1.freezer-bin",
+      "role": "freezer-bin",
+      "name": "Freezer bin",
+      "grain": "none",
+      "transform": {
+        "position": [
+          128,
+          352,
+          192
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "applianceBody",
+        "params": {
+          "x": 2048,
+          "y": 989,
+          "z": 1648,
+          "cavities": [
+            {
+              "id": "cav-bin",
+              "min": [
+                16,
+                16,
+                16
+              ],
+              "max": [
+                2032,
+                989,
+                1632
+              ],
+              "axis": 1
+            }
+          ],
+          "details": [],
+          "finish": {
+            "preset": "paint",
+            "color": "#d6dadd",
+            "roughness": 0.45
+          },
+          "inner": {
+            "preset": "paint",
+            "color": "#d6dadd",
+            "roughness": 0.45
+          }
+        }
+      },
+      "features": []
+    },
+    "fridge1.freezer-pull": {
+      "id": "fridge1.freezer-pull",
+      "role": "freezer-pull",
+      "name": "Freezer handle",
+      "grain": "none",
+      "transform": {
+        "position": [
+          455,
+          1349,
+          1984
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "pull",
+        "params": {
+          "style": "bar",
+          "length": 1267,
+          "size": 56,
+          "projection": 144,
+          "orientation": "h",
+          "finish": {
+            "preset": "metal:stainless"
+          }
+        }
+      },
+      "features": []
+    },
+    "room.floor": {
+      "id": "room.floor",
+      "role": "floor",
+      "name": "Floor",
+      "unclickable": true,
+      "grain": "x",
+      "transform": {
+        "position": [
+          -4960,
+          -96,
+          -672
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "slab",
+        "params": {
+          "x": 11392,
+          "y": 96,
+          "z": 5824,
+          "finish": {
+            "preset": "floor:oak-plank"
+          }
+        }
+      },
+      "features": []
+    },
+    "room.can-1-1": {
+      "id": "room.can-1-1",
+      "role": "can-1-1",
+      "name": "Ceiling light 1",
+      "unclickable": true,
+      "grain": "none",
+      "transform": {
+        "position": [
+          -2144,
+          6135,
+          752
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "recessedLight",
+        "params": {
+          "diameter": 256,
+          "trim": {
+            "preset": "paint",
+            "color": "#f6f5f1"
+          },
+          "lumens": 650,
+          "kelvin": 3000,
+          "beam": 60
+        }
+      },
+      "features": []
+    },
+    "room.can-1-2": {
+      "id": "room.can-1-2",
+      "role": "can-1-2",
+      "name": "Ceiling light 2",
+      "unclickable": true,
+      "grain": "none",
+      "transform": {
+        "position": [
+          3264,
+          6135,
+          752
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "recessedLight",
+        "params": {
+          "diameter": 256,
+          "trim": {
+            "preset": "paint",
+            "color": "#f6f5f1"
+          },
+          "lumens": 650,
+          "kelvin": 3000,
+          "beam": 60
+        }
+      },
+      "features": []
+    },
+    "room.can-2-1": {
+      "id": "room.can-2-1",
+      "role": "can-2-1",
+      "name": "Ceiling light 3",
+      "unclickable": true,
+      "grain": "none",
+      "transform": {
+        "position": [
+          -2144,
+          6135,
+          3376
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "recessedLight",
+        "params": {
+          "diameter": 256,
+          "trim": {
+            "preset": "paint",
+            "color": "#f6f5f1"
+          },
+          "lumens": 650,
+          "kelvin": 3000,
+          "beam": 60
+        }
+      },
+      "features": []
+    },
+    "room.can-2-2": {
+      "id": "room.can-2-2",
+      "role": "can-2-2",
+      "name": "Ceiling light 4",
+      "unclickable": true,
+      "grain": "none",
+      "transform": {
+        "position": [
+          3264,
+          6135,
+          3376
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "recessedLight",
+        "params": {
+          "diameter": 256,
+          "trim": {
+            "preset": "paint",
+            "color": "#f6f5f1"
+          },
+          "lumens": 650,
+          "kelvin": 3000,
+          "beam": 60
+        }
+      },
+      "features": []
+    },
+    "room.ceiling": {
+      "id": "room.ceiling",
+      "role": "ceiling",
+      "name": "Ceiling",
+      "unclickable": true,
+      "grain": "none",
+      "transform": {
+        "position": [
+          -4960,
+          6144,
+          -672
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "slab",
+        "params": {
+          "x": 11392,
+          "y": 96,
+          "z": 5824,
+          "finish": {
+            "preset": "paint",
+            "color": "#f6f5f1"
+          }
+        }
+      },
+      "features": []
+    },
+    "room.wall-back": {
+      "id": "room.wall-back",
+      "role": "wall-back",
+      "name": "Back wall",
+      "grain": "none",
+      "transform": {
+        "position": [
+          -4960,
+          0,
+          -672
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "wall",
+        "params": {
+          "x": 11392,
+          "y": 6144,
+          "z": 288,
+          "openings": [
+            {
+              "id": "w1",
+              "x": 4960,
+              "y": 2816,
+              "w": 2304,
+              "h": 2560
+            }
+          ],
+          "finish": {
+            "preset": "paint",
+            "color": "#ece8df"
+          }
+        }
+      },
+      "features": []
+    },
+    "room.baseboard-back-1": {
+      "id": "room.baseboard-back-1",
+      "role": "baseboard-back-1",
+      "name": "Back baseboard 1",
+      "unclickable": true,
+      "grain": "none",
+      "transform": {
+        "position": [
+          -4672,
+          0,
+          -384
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "trim",
+        "params": {
+          "style": "run",
+          "x": 10816,
+          "y": 288,
+          "z": 32,
+          "finish": {
+            "preset": "paint",
+            "color": "#f4f2ec",
+            "roughness": 0.35
+          }
+        }
+      },
+      "features": []
+    },
+    "room.casing-w1": {
+      "id": "room.casing-w1",
+      "role": "casing-w1",
+      "name": "Window w1 casing",
+      "unclickable": true,
+      "grain": "none",
+      "transform": {
+        "position": [
+          -240,
+          2560,
+          -384
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "trim",
+        "params": {
+          "style": "frame",
+          "w": 2304,
+          "h": 2560,
+          "width": 192,
+          "thickness": 48,
+          "finish": {
+            "preset": "paint",
+            "color": "#f4f2ec",
+            "roughness": 0.35
+          },
+          "sides": 3,
+          "stool": {
+            "depth": 112,
+            "thickness": 64,
+            "horn": 48
+          },
+          "apron": 192
+        }
+      },
+      "features": []
+    },
+    "room.window-w1": {
+      "id": "room.window-w1",
+      "role": "window-w1",
+      "name": "Window w1",
+      "grain": "none",
+      "transform": {
+        "position": [
+          0,
+          2816,
+          -672
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "window",
+        "params": {
+          "x": 2304,
+          "y": 2560,
+          "z": 288,
+          "style": "double-hung",
+          "finish": {
+            "preset": "paint",
+            "color": "#f4f2ec",
+            "roughness": 0.35
+          },
+          "glass": {
+            "preset": "glass:clear"
+          }
+        }
+      },
+      "features": []
+    },
+    "room.wall-left": {
+      "id": "room.wall-left",
+      "role": "wall-left",
+      "name": "Left wall",
+      "grain": "none",
+      "transform": {
+        "position": [
+          -4960,
+          0,
+          4864
+        ],
+        "rotation": [
+          0,
+          90,
+          0
+        ]
+      },
+      "shape": {
+        "type": "wall",
+        "params": {
+          "x": 5248,
+          "y": 6144,
+          "z": 288,
+          "openings": [],
+          "finish": {
+            "preset": "paint",
+            "color": "#ece8df"
+          }
+        }
+      },
+      "features": []
+    },
+    "room.baseboard-left-1": {
+      "id": "room.baseboard-left-1",
+      "role": "baseboard-left-1",
+      "name": "Left baseboard 1",
+      "unclickable": true,
+      "grain": "none",
+      "transform": {
+        "position": [
+          -4672,
+          0,
+          4832
+        ],
+        "rotation": [
+          0,
+          90,
+          0
+        ]
+      },
+      "shape": {
+        "type": "trim",
+        "params": {
+          "style": "run",
+          "x": 5184,
+          "y": 288,
+          "z": 32,
+          "finish": {
+            "preset": "paint",
+            "color": "#f4f2ec",
+            "roughness": 0.35
+          }
+        }
+      },
+      "features": []
+    },
+    "room.wall-right": {
+      "id": "room.wall-right",
+      "role": "wall-right",
+      "name": "Right wall",
+      "grain": "none",
+      "transform": {
+        "position": [
+          6432,
+          0,
+          -384
+        ],
+        "rotation": [
+          0,
+          -90,
+          0
+        ]
+      },
+      "shape": {
+        "type": "wall",
+        "params": {
+          "x": 5248,
+          "y": 6144,
+          "z": 288,
+          "openings": [
+            {
+              "id": "d1",
+              "x": 1920,
+              "y": 0,
+              "w": 2048,
+              "h": 5120
+            }
+          ],
+          "finish": {
+            "preset": "paint",
+            "color": "#ece8df"
+          }
+        }
+      },
+      "features": []
+    },
+    "room.baseboard-right-1": {
+      "id": "room.baseboard-right-1",
+      "role": "baseboard-right-1",
+      "name": "Right baseboard 1",
+      "unclickable": true,
+      "grain": "none",
+      "transform": {
+        "position": [
+          6144,
+          0,
+          -352
+        ],
+        "rotation": [
+          0,
+          -90,
+          0
+        ]
+      },
+      "shape": {
+        "type": "trim",
+        "params": {
+          "style": "run",
+          "x": 1696,
+          "y": 288,
+          "z": 32,
+          "finish": {
+            "preset": "paint",
+            "color": "#f4f2ec",
+            "roughness": 0.35
+          }
+        }
+      },
+      "features": []
+    },
+    "room.baseboard-right-2": {
+      "id": "room.baseboard-right-2",
+      "role": "baseboard-right-2",
+      "name": "Right baseboard 2",
+      "unclickable": true,
+      "grain": "none",
+      "transform": {
+        "position": [
+          6144,
+          0,
+          3776
+        ],
+        "rotation": [
+          0,
+          -90,
+          0
+        ]
+      },
+      "shape": {
+        "type": "trim",
+        "params": {
+          "style": "run",
+          "x": 1056,
+          "y": 288,
+          "z": 32,
+          "finish": {
+            "preset": "paint",
+            "color": "#f4f2ec",
+            "roughness": 0.35
+          }
+        }
+      },
+      "features": []
+    },
+    "room.casing-d1": {
+      "id": "room.casing-d1",
+      "role": "casing-d1",
+      "name": "Door d1 casing",
+      "unclickable": true,
+      "grain": "none",
+      "transform": {
+        "position": [
+          6144,
+          0,
+          1344
+        ],
+        "rotation": [
+          0,
+          -90,
+          0
+        ]
+      },
+      "shape": {
+        "type": "trim",
+        "params": {
+          "style": "frame",
+          "w": 2048,
+          "h": 5120,
+          "width": 192,
+          "thickness": 48,
+          "finish": {
+            "preset": "paint",
+            "color": "#f4f2ec",
+            "roughness": 0.35
+          },
+          "sides": 3,
+          "stool": null,
+          "apron": null
+        }
+      },
+      "features": []
+    },
+    "room.door-d1-leaf": {
+      "id": "room.door-d1-leaf",
+      "role": "door-d1-leaf",
+      "name": "Door d1",
+      "grain": "y",
+      "transform": {
+        "position": [
+          1928,
+          48,
+          100
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "doorLeaf",
+        "params": {
+          "x": 2032,
+          "y": 5064,
+          "z": 88,
+          "style": "panel",
+          "finish": {
+            "preset": "paint",
+            "color": "#f4f2ec",
+            "roughness": 0.35
+          },
+          "glass": {
+            "preset": "glass:clear"
+          }
+        }
+      },
+      "features": []
+    },
+    "room.door-d1-handle": {
+      "id": "room.door-d1-handle",
+      "role": "door-d1-handle",
+      "name": "Door d1 handle",
+      "grain": "none",
+      "transform": {
+        "position": [
+          3880,
+          2232,
+          348
+        ],
+        "rotation": [
+          0,
+          180,
+          0
+        ]
+      },
+      "shape": {
+        "type": "pull",
+        "params": {
+          "style": "lever",
+          "orientation": "h",
+          "finish": {
+            "preset": "metal:brushed-nickel"
+          },
+          "through": 88
+        }
+      },
+      "features": []
+    },
+    "room.wall-front": {
+      "id": "room.wall-front",
+      "role": "wall-front",
+      "name": "Front wall",
+      "grain": "none",
+      "transform": {
+        "position": [
+          6432,
+          0,
+          5152
+        ],
+        "rotation": [
+          0,
+          180,
+          0
+        ]
+      },
+      "shape": {
+        "type": "wall",
+        "params": {
+          "x": 11392,
+          "y": 6144,
+          "z": 288,
+          "openings": [],
+          "finish": {
+            "preset": "paint",
+            "color": "#ece8df"
+          }
+        }
+      },
+      "features": []
+    },
+    "room.baseboard-front-1": {
+      "id": "room.baseboard-front-1",
+      "role": "baseboard-front-1",
+      "name": "Front baseboard 1",
+      "unclickable": true,
+      "grain": "none",
+      "transform": {
+        "position": [
+          6144,
+          0,
+          4864
+        ],
+        "rotation": [
+          0,
+          180,
+          0
+        ]
+      },
+      "shape": {
+        "type": "trim",
+        "params": {
+          "style": "run",
+          "x": 10816,
+          "y": 288,
+          "z": 32,
+          "finish": {
+            "preset": "paint",
+            "color": "#f4f2ec",
+            "roughness": 0.35
+          }
+        }
+      },
+      "features": []
+    },
+    "st1": {
+      "id": "st1",
+      "name": "Bar stool 1",
+      "grain": "none",
+      "transform": {
+        "position": [
+          256,
+          0,
+          1920
+        ],
+        "rotation": [
+          0,
+          180,
+          0
+        ]
+      },
+      "shape": {
+        "type": "barStool",
+        "params": {
+          "seatHeight": 1536,
+          "seat": "round",
+          "size": 960,
+          "back": false,
+          "frameFinish": {
+            "preset": "metal:matte-black"
+          },
+          "seatFinish": {
+            "preset": "wood:white-oak"
+          }
+        }
+      },
+      "features": []
+    },
+    "st2": {
+      "id": "st2",
+      "name": "Bar stool 2",
+      "grain": "none",
+      "transform": {
+        "position": [
+          1280,
+          0,
+          1920
+        ],
+        "rotation": [
+          0,
+          180,
+          0
+        ]
+      },
+      "shape": {
+        "type": "barStool",
+        "params": {
+          "seatHeight": 1536,
+          "seat": "round",
+          "size": 960,
+          "back": false,
+          "frameFinish": {
+            "preset": "metal:matte-black"
+          },
+          "seatFinish": {
+            "preset": "wood:white-oak"
+          }
+        }
+      },
+      "features": []
+    },
+    "pd1": {
+      "id": "pd1",
+      "name": "Pendant 1",
+      "grain": "none",
+      "transform": {
+        "position": [
+          768,
+          3840,
+          384
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "pendant",
+        "params": {
+          "shade": "dome",
+          "diameter": 768,
+          "drop": 1920,
+          "finish": {
+            "preset": "metal:matte-black"
+          },
+          "lumens": 800,
+          "kelvin": 2700
+        }
+      },
+      "features": []
+    },
+    "rug1": {
+      "id": "rug1",
+      "name": "Rug 1",
+      "grain": "none",
+      "transform": {
+        "position": [
+          -384,
+          0,
+          1920
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "rug",
+        "params": {
+          "shape": "rect",
+          "width": 6144,
+          "depth": 3840,
+          "thickness": 24,
+          "finish": {
+            "preset": "fabric:wool",
+            "color": "#c9bfae"
+          },
+          "border": null
+        }
+      },
+      "features": []
+    },
+    "pl1": {
+      "id": "pl1",
+      "name": "Plant 1",
+      "grain": "none",
+      "transform": {
+        "position": [
+          1664,
+          2284,
+          256
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "shape": {
+        "type": "plant",
+        "params": {
+          "style": "leafy",
+          "height": 1536,
+          "potDiameter": 512,
+          "potHeight": 448,
+          "potFinish": {
+            "preset": "ceramic",
+            "color": "#e9e4da"
+          },
+          "seed": 1
+        }
+      },
+      "features": []
+    }
+  },
+  "assemblies": {
+    "a1": {
+      "id": "a1",
+      "name": "Base cabinet",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "children": [
+        "a1.side-left",
+        "a1.side-right",
+        "a1.bottom",
+        "a1.top",
+        "a1.back",
+        "a1.kick",
+        "a1.drawer-1",
+        "a1.door-left-leaf",
+        "a1.door-right-leaf",
+        "a1.shelf-1"
+      ],
+      "generator": {
+        "type": "carcass",
+        "params": {
+          "width": 2304,
+          "height": 2208,
+          "depth": 1536,
+          "material": "ply-3-4",
+          "back": "inset",
+          "backMaterial": "ply-1-4",
+          "toeKick": {
+            "height": 256,
+            "depth": 192
+          },
+          "shelves": 1,
+          "joinery": "dado",
+          "drawers": [
+            384
+          ],
+          "doors": 2,
+          "pulls": {
+            "style": "bar"
+          },
+          "frontFinish": {
+            "preset": "paint",
+            "color": "#2f4f3a"
+          }
+        },
+        "overrides": {
+          "side-right": {
+            "features": [
+              {
+                "id": "f1",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    768,
+                    1536
+                  ],
+                  "d": 64
+                }
+              },
+              {
+                "id": "f2",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    128,
+                    640
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f3",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    128,
+                    720
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f4",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    128,
+                    800
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f5",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    128,
+                    880
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f6",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    128,
+                    960
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f7",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    128,
+                    1040
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f8",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    128,
+                    1120
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f9",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    128,
+                    1200
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f10",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    128,
+                    1280
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f11",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    128,
+                    1360
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f12",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    128,
+                    1440
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f13",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    128,
+                    1520
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f14",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    128,
+                    1600
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f15",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    1408,
+                    640
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f16",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    1408,
+                    720
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f17",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    1408,
+                    800
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f18",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    1408,
+                    880
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f19",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    1408,
+                    960
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f20",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    1408,
+                    1040
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f21",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    1408,
+                    1120
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f22",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    1408,
+                    1200
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f23",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    1408,
+                    1280
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f24",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    1408,
+                    1360
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f25",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    1408,
+                    1440
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f26",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    1408,
+                    1520
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f27",
+                "type": "hole",
+                "params": {
+                  "face": "face:left",
+                  "at": [
+                    1408,
+                    1600
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              }
+            ]
+          },
+          "side-left": {
+            "features": [
+              {
+                "id": "f1",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    128,
+                    640
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f2",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    128,
+                    720
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f3",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    128,
+                    800
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f4",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    128,
+                    880
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f5",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    128,
+                    960
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f6",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    128,
+                    1040
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f7",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    128,
+                    1120
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f8",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    128,
+                    1200
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f9",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    128,
+                    1280
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f10",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    128,
+                    1360
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f11",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    128,
+                    1440
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f12",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    128,
+                    1520
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f13",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    128,
+                    1600
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f14",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    1408,
+                    640
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f15",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    1408,
+                    720
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f16",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    1408,
+                    800
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f17",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    1408,
+                    880
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f18",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    1408,
+                    960
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f19",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    1408,
+                    1040
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f20",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    1408,
+                    1120
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f21",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    1408,
+                    1200
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f22",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    1408,
+                    1280
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f23",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    1408,
+                    1360
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f24",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    1408,
+                    1440
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f25",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    1408,
+                    1520
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              },
+              {
+                "id": "f26",
+                "type": "hole",
+                "params": {
+                  "face": "face:right",
+                  "at": [
+                    1408,
+                    1600
+                  ],
+                  "d": 13,
+                  "depth": 24
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "a1.drawer-1": {
+      "id": "a1.drawer-1",
+      "role": "drawer-1",
+      "name": "Drawer 1",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "children": [
+        "a1.drawer-1-front",
+        "a1.drawer-1-bottom",
+        "a1.drawer-1-side-left",
+        "a1.drawer-1-side-right",
+        "a1.drawer-1-back",
+        "a1.drawer-1-sub-front",
+        "a1.drawer-1-pull"
+      ]
+    },
+    "a1.door-left-leaf": {
+      "id": "a1.door-left-leaf",
+      "role": "door-left-leaf",
+      "name": "Left door",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "children": [
+        "a1.door-left",
+        "a1.door-left-pull"
+      ]
+    },
+    "a1.door-right-leaf": {
+      "id": "a1.door-right-leaf",
+      "role": "door-right-leaf",
+      "name": "Right door",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "children": [
+        "a1.door-right",
+        "a1.door-right-pull"
+      ]
+    },
+    "fridge1": {
+      "id": "fridge1",
+      "name": "Fridge",
+      "transform": {
+        "position": [
+          -2368,
+          0,
+          -384
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "children": [
+        "fridge1.body",
+        "fridge1.door-left-leaf",
+        "fridge1.door-right-leaf",
+        "fridge1.freezer"
+      ],
+      "generator": {
+        "type": "fridge",
+        "params": {
+          "width": 2304,
+          "height": 4480,
+          "depth": 1984,
+          "finish": "stainless",
+          "panelFinish": {
+            "preset": "paint",
+            "color": "#f2f0eb"
+          },
+          "style": "french",
+          "hinge": "right",
+          "handle": "bar"
+        },
+        "overrides": {}
+      }
+    },
+    "fridge1.door-left-leaf": {
+      "id": "fridge1.door-left-leaf",
+      "role": "door-left-leaf",
+      "name": "Left door",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "children": [
+        "fridge1.door-left",
+        "fridge1.door-left-pull"
+      ]
+    },
+    "fridge1.door-right-leaf": {
+      "id": "fridge1.door-right-leaf",
+      "role": "door-right-leaf",
+      "name": "Right door",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "children": [
+        "fridge1.door-right",
+        "fridge1.door-right-pull"
+      ]
+    },
+    "fridge1.freezer": {
+      "id": "fridge1.freezer",
+      "role": "freezer",
+      "name": "Freezer drawer",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "children": [
+        "fridge1.freezer-front",
+        "fridge1.freezer-bin",
+        "fridge1.freezer-pull"
+      ]
+    },
+    "room": {
+      "id": "room",
+      "name": "Room",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "children": [
+        "room.floor",
+        "room.can-1-1",
+        "room.can-1-2",
+        "room.can-2-1",
+        "room.can-2-2",
+        "room.ceiling",
+        "room.wall-back",
+        "room.baseboard-back-1",
+        "room.casing-w1",
+        "room.window-w1",
+        "room.wall-left",
+        "room.baseboard-left-1",
+        "room.wall-right",
+        "room.baseboard-right-1",
+        "room.baseboard-right-2",
+        "room.casing-d1",
+        "room.door-d1",
+        "room.wall-front",
+        "room.baseboard-front-1"
+      ],
+      "generator": {
+        "type": "room",
+        "params": {
+          "left": -4672,
+          "right": 6144,
+          "back": -384,
+          "front": 4864,
+          "height": 6144,
+          "walls": [
+            "back",
+            "left",
+            "right",
+            "front"
+          ],
+          "wallThickness": 288,
+          "openings": [
+            {
+              "id": "w1",
+              "wall": "back",
+              "at": 1152,
+              "width": 2304,
+              "height": 2560,
+              "casing": true,
+              "kind": "window",
+              "sill": 2816,
+              "style": "double-hung",
+              "stool": true
+            },
+            {
+              "id": "d1",
+              "wall": "right",
+              "at": 2560,
+              "width": 2048,
+              "height": 5120,
+              "casing": true,
+              "kind": "door",
+              "leaf": "panel",
+              "hinge": "left",
+              "swing": "in",
+              "angle": 90,
+              "handle": "lever"
+            }
+          ],
+          "floor": true,
+          "ceiling": true,
+          "floorGrain": "x",
+          "baseboard": {
+            "height": 288,
+            "thickness": 32
+          },
+          "cans": {
+            "rows": 2,
+            "cols": 2,
+            "diameter": 256
+          },
+          "finishes": {
+            "walls": {
+              "preset": "paint",
+              "color": "#ece8df"
+            },
+            "floor": {
+              "preset": "floor:oak-plank"
+            },
+            "ceiling": {
+              "preset": "paint",
+              "color": "#f6f5f1"
+            },
+            "trim": {
+              "preset": "paint",
+              "color": "#f4f2ec",
+              "roughness": 0.35
+            },
+            "doors": {
+              "preset": "paint",
+              "color": "#f4f2ec",
+              "roughness": 0.35
+            },
+            "windows": {
+              "preset": "paint",
+              "color": "#f4f2ec",
+              "roughness": 0.35
+            }
+          }
+        },
+        "overrides": {}
+      }
+    },
+    "room.door-d1": {
+      "id": "room.door-d1",
+      "role": "door-d1",
+      "name": "Door d1",
+      "transform": {
+        "position": [
+          6432,
+          0,
+          -384
+        ],
+        "rotation": [
+          0,
+          -90,
+          0
+        ]
+      },
+      "children": [
+        "room.door-d1-leaf",
+        "room.door-d1-handle"
+      ]
+    },
+    "stools": {
+      "id": "stools",
+      "name": "Island stools",
+      "transform": {
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      "children": [
+        "st1",
+        "st2"
+      ]
+    }
+  },
+  "joints": {
+    "a1.j.drawer-1-back-left": {
+      "id": "a1.j.drawer-1-back-left",
+      "role": "drawer-1-back-left",
+      "type": "rabbet",
+      "parts": [
+        "a1.drawer-1-side-left",
+        "a1.drawer-1-back"
+      ],
+      "params": {
+        "depth": 23
+      }
+    },
+    "a1.j.drawer-1-sub-front-left": {
+      "id": "a1.j.drawer-1-sub-front-left",
+      "role": "drawer-1-sub-front-left",
+      "type": "rabbet",
+      "parts": [
+        "a1.drawer-1-side-left",
+        "a1.drawer-1-sub-front"
+      ],
+      "params": {
+        "depth": 23
+      }
+    },
+    "a1.j.drawer-1-back-right": {
+      "id": "a1.j.drawer-1-back-right",
+      "role": "drawer-1-back-right",
+      "type": "rabbet",
+      "parts": [
+        "a1.drawer-1-side-right",
+        "a1.drawer-1-back"
+      ],
+      "params": {
+        "depth": 23
+      }
+    },
+    "a1.j.drawer-1-sub-front-right": {
+      "id": "a1.j.drawer-1-sub-front-right",
+      "role": "drawer-1-sub-front-right",
+      "type": "rabbet",
+      "parts": [
+        "a1.drawer-1-side-right",
+        "a1.drawer-1-sub-front"
+      ],
+      "params": {
+        "depth": 23
+      }
+    },
+    "a1.j.bottom-left": {
+      "id": "a1.j.bottom-left",
+      "role": "bottom-left",
+      "type": "dado",
+      "parts": [
+        "a1.side-left",
+        "a1.bottom"
+      ],
+      "params": {
+        "depth": 16
+      }
+    },
+    "a1.j.bottom-right": {
+      "id": "a1.j.bottom-right",
+      "role": "bottom-right",
+      "type": "dado",
+      "parts": [
+        "a1.side-right",
+        "a1.bottom"
+      ],
+      "params": {
+        "depth": 16
+      }
+    },
+    "a1.j.top-left": {
+      "id": "a1.j.top-left",
+      "role": "top-left",
+      "type": "dado",
+      "parts": [
+        "a1.side-left",
+        "a1.top"
+      ],
+      "params": {
+        "depth": 16
+      }
+    },
+    "a1.j.top-right": {
+      "id": "a1.j.top-right",
+      "role": "top-right",
+      "type": "dado",
+      "parts": [
+        "a1.side-right",
+        "a1.top"
+      ],
+      "params": {
+        "depth": 16
+      }
+    },
+    "a1.j.back-left": {
+      "id": "a1.j.back-left",
+      "role": "back-left",
+      "type": "rabbet",
+      "parts": [
+        "a1.side-left",
+        "a1.back"
+      ],
+      "params": {
+        "depth": 24
+      }
+    },
+    "a1.j.back-right": {
+      "id": "a1.j.back-right",
+      "role": "back-right",
+      "type": "rabbet",
+      "parts": [
+        "a1.side-right",
+        "a1.back"
+      ],
+      "params": {
+        "depth": 24
+      }
+    },
+    "a1.j.kick-left": {
+      "id": "a1.j.kick-left",
+      "role": "kick-left",
+      "type": "butt",
+      "parts": [
+        "a1.side-left",
+        "a1.kick"
+      ],
+      "params": {}
+    },
+    "a1.j.kick-right": {
+      "id": "a1.j.kick-right",
+      "role": "kick-right",
+      "type": "butt",
+      "parts": [
+        "a1.side-right",
+        "a1.kick"
+      ],
+      "params": {}
+    }
+  },
+  "annotations": {},
+  "variables": {},
+  "motions": {
+    "a1.motion.drawer-1": {
+      "id": "a1.motion.drawer-1",
+      "name": "Drawer 1",
+      "type": "slide",
+      "nodes": [
+        "a1.drawer-1"
+      ],
+      "params": {
+        "toward": "front",
+        "distance": 1458,
+        "seconds": 0.6
+      },
+      "role": "drawer-1"
+    },
+    "a1.motion.door-left": {
+      "id": "a1.motion.door-left",
+      "name": "Left door",
+      "type": "hinge",
+      "nodes": [
+        "a1.door-left-leaf"
+      ],
+      "params": {
+        "side": "left",
+        "angle": 105,
+        "seconds": 0.8
+      },
+      "role": "door-left"
+    },
+    "a1.motion.door-right": {
+      "id": "a1.motion.door-right",
+      "name": "Right door",
+      "type": "hinge",
+      "nodes": [
+        "a1.door-right-leaf"
+      ],
+      "params": {
+        "side": "right",
+        "angle": 105,
+        "seconds": 0.8
+      },
+      "role": "door-right"
+    },
+    "fridge1.motion.door-left": {
+      "id": "fridge1.motion.door-left",
+      "name": "Left door",
+      "type": "hinge",
+      "nodes": [
+        "fridge1.door-left-leaf"
+      ],
+      "params": {
+        "side": "left",
+        "angle": 115,
+        "seconds": 0.8
+      },
+      "role": "door-left"
+    },
+    "fridge1.motion.door-right": {
+      "id": "fridge1.motion.door-right",
+      "name": "Right door",
+      "type": "hinge",
+      "nodes": [
+        "fridge1.door-right-leaf"
+      ],
+      "params": {
+        "side": "right",
+        "angle": 115,
+        "seconds": 0.8
+      },
+      "role": "door-right"
+    },
+    "fridge1.motion.freezer": {
+      "id": "fridge1.motion.freezer",
+      "name": "Freezer drawer",
+      "type": "slide",
+      "nodes": [
+        "fridge1.freezer"
+      ],
+      "params": {
+        "toward": "front",
+        "distance": 1318,
+        "seconds": 0.6
+      },
+      "role": "freezer"
+    },
+    "room.motion.door-d1": {
+      "id": "room.motion.door-d1",
+      "name": "Door d1",
+      "type": "hinge",
+      "nodes": [
+        "room.door-d1"
+      ],
+      "params": {
+        "side": "left",
+        "toward": "front",
+        "angle": 90,
+        "seconds": 0.8
+      },
+      "role": "door-d1"
+    }
+  },
+  "roots": [
+    "room",
+    "a1",
+    "tabletop",
+    "door",
+    "top",
+    "fridge1",
+    "stools",
+    "pd1",
+    "rug1",
+    "pl1"
+  ],
+  "presentation": {
+    "views": [
+      {
+        "id": "view1",
+        "name": "The kitchen",
+        "frame": {
+          "nodes": [],
+          "from": "front-left"
+        },
+        "caption": "Green shaker fronts, quartz top"
+      },
+      {
+        "id": "view2",
+        "name": "Drawer",
+        "frame": {
+          "nodes": [
+            "a1"
+          ],
+          "from": "front"
+        },
+        "open": [
+          "a1.motion.drawer-1"
+        ],
+        "lighting": "evening"
+      },
+      {
+        "id": "view3",
+        "name": "From the door",
+        "camera": {
+          "position": [
+            8320,
+            3968,
+            3840
+          ],
+          "target": [
+            1152,
+            2304,
+            640
+          ],
+          "fov": 60
+        },
+        "mode": "walk"
+      }
+    ],
+    "lighting": {
+      "preset": "day",
+      "exposure": 0.3,
+      "underCabinet": true
+    },
+    "eyeHeight": 4096
+  }
+}

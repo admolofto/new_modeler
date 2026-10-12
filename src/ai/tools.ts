@@ -2,7 +2,7 @@ import type Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 import { cutList, cutListText } from '../model/cutlist';
 import { applyOps, makeOpSchema, motionEntity, type Op } from '../model/ops';
-import { Id, type Doc, type Motion } from '../model/schema';
+import { Finish, Id, type Doc, type Motion } from '../model/schema';
 import { formatInches, parseInches } from '../model/units';
 import { features, generators, motions, shapes } from '../plugins';
 import { buildPart } from '../plugins/pipeline';
@@ -10,11 +10,15 @@ import { apply, boxSize, nodeAffine, overlaps, rotate, union, worldBoxes, type B
 import { parentIndex } from '../model/doc';
 import { directionText } from '../edit/blocks';
 import { clashText, clearance } from '../model/clearance';
+import { decorInfo, isDecor } from '../model/decor';
 import { generatedOwner } from '../model/generate';
 import { motionBasis, motionName, motionSummary } from '../model/motion';
 import { placeRecipe, recipeInputs, type Recipe } from '../model/recipes';
 import { hingePoint, towardOf, type HingeParams } from '../plugins/motions/hinge';
 import { cross, normal, type Side } from '../plugins/motions/sides';
+import { refitRoomOps, roomAround, roomIssues, roomOf, roomParams, rooms, openingText, type RoomFitOptions } from '../model/room';
+import { entityKind } from '../model/doc';
+import { ROOM_SIDES } from '../plugins/generators/room';
 import { treeIssues } from './organization';
 
 /**
@@ -49,17 +53,39 @@ function motionUnion() {
   return z.discriminatedUnion('type', options as unknown as [ReturnType<typeof motionEntity>, ReturnType<typeof motionEntity>]);
 }
 
+/** Decor shapes the AI may add (internal ones are its generators' business). */
+const addableDecor = () => shapes.all().filter((d) => d.decor && !d.decor.internal);
+
+/**
+ * Stock shapes go on parts; decor shapes (props, hardware) on the decor entity — minus the internal
+ * ones generators place (walls, trim), and with no decor entity at all while there are none to add.
+ */
 export function aiOpSchema() {
+  const decor = addableDecor();
   return makeOpSchema({
-    shape: refUnion(shapes.all(), false),
+    shape: refUnion(shapes.all().filter((d) => !d.decor), false),
     feature: refUnion(features.all(), true),
     generator: refUnion(generators.all(), false),
     motion: motionUnion(),
+    ...(decor.length && { decor: refUnion(decor, false) }),
   });
 }
 
+/**
+ * The JSON schema a tool shows. Finishes appear in every prop, appliance and room: they show as a
+ * bare {preset, color?, roughness?} (the prompt documents the presets and #rrggbb colors; zod still
+ * checks them when the ops apply), which keeps the tool schemas within budget.
+ */
 function jsonSchema(schema: z.ZodType): Tool['input_schema'] {
-  const { $schema: _drop, ...rest } = z.toJSONSchema(schema, { io: 'input', unrepresentable: 'any' }) as Record<string, unknown>;
+  const { $schema: _drop, ...rest } = z.toJSONSchema(schema, {
+    io: 'input',
+    unrepresentable: 'any',
+    override: (ctx) => {
+      if (ctx.zodSchema !== Finish) return;
+      const props = ctx.jsonSchema.properties as Record<string, Record<string, unknown>> | undefined;
+      for (const p of Object.values(props ?? {})) for (const k of ['pattern', 'minimum', 'maximum']) delete p[k];
+    },
+  }) as Record<string, unknown>;
   return rest as Tool['input_schema'];
 }
 
@@ -69,12 +95,16 @@ export const TOOL_GET_MODEL = 'get_model';
 export const TOOL_CUT_LIST = 'cut_list';
 export const TOOL_GET_RECIPE = 'get_recipe';
 export const TOOL_INSERT_RECIPE = 'insert_recipe';
+export const TOOL_FIT_ROOM = 'fit_room';
 
 /** A length in 1/64" or an inch string ("30in"). */
 const Length = z.union([z.int(), z.string()]);
 const RecipeRef = z.string().min(1).describe('The recipe\'s id from the "recipes" catalog in the model snapshot (its exact name also works).');
 
 export function toolDefs(): Tool[] {
+  const decor = addableDecor().length
+    ? '; decor is a prop, hardware or furniture piece: {kind: "decor", name?, transform?, shape} — no material, its looks are in its shape params'
+    : '';
   return [
     {
       name: TOOL_APPLY,
@@ -85,9 +115,9 @@ export function toolDefs(): Tool[] {
         'may instead be written as an inch string like "34 1/2in" or "3/4in". The result lists what changed, world bounds of new/changed ' +
         'nodes, and warnings such as parts that interpenetrate — fix real problems with another call. Nothing is final until the ' +
         'user accepts the preview.\n\n' +
-        'Ops: add {entity, parent?, index?} (entity.kind part | block | assembly | joint | material | motion; a block is a placeholder box: {kind: "block", name?, transform?, size: [x, y, z]}); update {id, patch} (part: name, material, ' +
-        'grain, shape: {params} merged into the current params — a block takes only name and shape params; assembly: name, params merged into its generator params, which ' +
-        'regenerates it; material: name, thickness, color, stock; joint: type, parts, params); delete {id} (assemblies take their ' +
+        `Ops: add {entity, parent?, index?} (entity.kind part | block | assembly | joint | material | motion | view${decor ? ' | decor' : ''}; a block is a placeholder box: {kind: "block", name?, transform?, size: [x, y, z]}${decor}); update {id, patch} (part: name, material, ` +
+        'grain, finish, shape: {params} merged into the current params — a block takes only name and shape params; assembly: name, finish, params merged into its generator params, which ' +
+        'regenerates it; material: name, thickness, color, stock, finish; joint: type, parts, params; finish: {preset, color?, roughness?} or null to clear it); delete {id} (assemblies take their ' +
         'children with them; deleting a generated part is remembered as an override); move {id, to? | by?, rotation?, parent?, index?, keepWorld?} ' +
         '(parent: assembly id or null = top level; add keepWorld: true when reparenting existing nodes so they stay where they are in the world ' +
         '— their local transform and position formulas adapt; index alone, without parent, reorders a node among its siblings, 0 = first). ' +
@@ -99,7 +129,10 @@ export function toolDefs(): Tool[] {
         'update {id, patch: {value | name | group}}; delete {id} (unbinds what used it). ' +
         'Notes: update {id: "n1", patch: {resolved: true}} marks a user note addressed. ' +
         'Animations (how doors, drawers and lids open): add {entity: {kind: "motion", nodes: [what moves together: siblings, e.g. a door\'s folder], type, params, name?}}; ' +
-        'update {id, patch: {params (merged; null resets one), type?, nodes?, name?}}; delete {id}. Generated ones (carcass drawers and doors) are read-only.',
+        'update {id, patch: {params (merged; null resets one), type?, nodes?, name?}}; delete {id}. Generated ones (carcass drawers and doors) are read-only. ' +
+        'Presentation: setPresentation {lighting?: {preset: auto | day | evening | night | studio, sun?: {azimuth, elevation}, exposure? (EV), underCabinet?} | null, eyeHeight? | null} ' +
+        '(lighting replaces the saved one whole; null resets it). Tour views, in order: add {entity: {kind: "view", name, frame: {nodes (none = whole model), from}, open?: [motion or node ids], caption?}, index?}; ' +
+        'update {id, patch} (frame merges; null clears a field); delete {id}; move {id, index} reorders.',
       input_schema: jsonSchema(z.object({ ops: z.array(aiOpSchema()).min(1) })),
     },
     {
@@ -141,6 +174,22 @@ export function toolDefs(): Tool[] {
         inputs: z.record(z.string(), Length).optional(),
         parent: Id.nullable().optional(),
         position: z.tuple([Length, Length, Length]).optional(),
+      })),
+    },
+    {
+      name: TOOL_FIT_ROOM,
+      description:
+        'Makes the room (walls, floor, ceiling) around the model, or refits the existing room to the model as it is now, in the same ' +
+        'preview as your other changes. By default the back wall goes flush behind the model; a side wall flush where a cabinet\'s back ' +
+        'faces it, else 36" out; the front wall 48" in front; the ceiling at 96" or the model\'s top. margins: the inside distance from ' +
+        'the model to a wall (a length; 0 = flush), overriding those rules for that side. height: floor to ceiling. walls: which to build ' +
+        '(default all four). ceiling: false leaves it off. Refitting keeps the openings (sliding them along their wall to stay on it), ' +
+        'finishes and height. Then add windows and doors by updating the room\'s openings param.',
+      input_schema: jsonSchema(z.object({
+        margins: z.object({ left: Length.optional(), right: Length.optional(), back: Length.optional(), front: Length.optional() }).optional(),
+        height: Length.optional(),
+        walls: z.array(z.enum(ROOM_SIDES)).min(1).optional(),
+        ceiling: z.boolean().optional(),
       })),
     },
   ];
@@ -203,6 +252,7 @@ function nodeIds(d: Doc): Set<string> {
     ...Object.keys(d.annotations),
     ...Object.keys(d.variables),
     ...Object.keys(d.motions),
+    ...(d.presentation?.views ?? []).map((v) => v.id),
   ]);
 }
 
@@ -215,6 +265,8 @@ function describeNode(d: Doc, id: string): string {
   if (j) return `${id} (${j.type} joint)`;
   const m = d.motions[id];
   if (m) return `${id} (animation of "${motionName(d, m)}")`;
+  const view = d.presentation?.views.find((v) => v.id === id);
+  if (view) return `${id} (view "${view.name}")`;
   return d.annotations[id] ? `${id} (note)` : id;
 }
 
@@ -315,15 +367,83 @@ function applyTool(state: ToolState, input: unknown): ToolOutcome {
   if (opening.length) lines.push('Opening check — fix these unless intended:', ...opening.slice(0, 10).map((c) => `  ${clashText(after, c)}`));
   const issues = treeIssues(before, after);
   if (issues.length) lines.push('Tree check — fix these unless intended:', ...issues.slice(0, 10).map((i) => `  ${i}`));
+  const room = roomCheck(before, after);
+  if (room.length) lines.push('Room check — fix these unless intended:', ...room.slice(0, 10).map((i) => `  ${i}`));
   const warnings = [
     ...(clash.length ? [`${clash.length} overlap warning${clash.length === 1 ? '' : 's'}`] : []),
     ...(opening.length ? [`${opening.length} opening warning${opening.length === 1 ? '' : 's'}`] : []),
+    ...(room.length ? [`${room.length} room warning${room.length === 1 ? '' : 's'}`] : []),
   ];
   return {
     content: lines.join('\n'),
     isError: false,
     summary: `✓ ${ops.length} op${ops.length === 1 ? '' : 's'} applied${warnings.length ? ` (${warnings.join(', ')})` : ''}`,
   };
+}
+
+/** The rooms' issues after a change: all of them when a room changed, else the ones it caused. */
+function roomCheck(before: Doc, after: Doc): string[] {
+  try {
+    const now = roomIssues(after);
+    if (!now.length) return [];
+    const changed = rooms(after).some((r) => JSON.stringify(before.assemblies[r.id]?.generator) !== JSON.stringify(r.generator));
+    if (changed) return now;
+    const was = new Set(roomIssues(before));
+    return now.filter((i) => !was.has(i));
+  } catch {
+    return [];
+  }
+}
+
+const FitRoomInput = z.object({
+  margins: z.object({ left: z.number().optional(), right: z.number().optional(), back: z.number().optional(), front: z.number().optional() }).optional(),
+  height: z.number().positive().optional(),
+  walls: z.array(z.enum(ROOM_SIDES)).min(1).optional(),
+  ceiling: z.boolean().optional(),
+});
+
+/** fit_room: a room around the model (roomAround), or the room refit to it (refitRoomOps), into the draft. */
+function fitRoomTool(state: ToolState, input: unknown): ToolOutcome {
+  const parsed = FitRoomInput.safeParse(normalizeLengths(input ?? {}));
+  if (!parsed.success) {
+    const why = parsed.error.issues.slice(0, 3).map((i) => `${i.path.join('.') || 'input'}: ${i.message}`).join('; ');
+    return fail(`Expected {"margins"?: {left?, right?, back?, front?}, "height"?, "walls"?: [...], "ceiling"?: boolean}. ${why}`, 'fit_room: bad input');
+  }
+  const { margins, height, walls, ceiling } = parsed.data;
+  const opts: RoomFitOptions = {
+    ...(margins && { margins: Object.fromEntries(Object.entries(margins).flatMap(([k, v]) => (v === undefined ? [] : [[k, Math.round(v)]]))) }),
+    ...(height !== undefined && { height: Math.round(height) }),
+    ...(walls && { walls }),
+    ...(ceiling !== undefined && { ceiling }),
+  };
+  const before = state.draft;
+  const existing = roomOf(before);
+  let ops: Op[];
+  let notes: string[] = [];
+  if (existing) ({ ops, notes } = refitRoomOps(before, existing.id, opts));
+  else {
+    const id = entityKind(before, 'room') === null ? 'room' : undefined;
+    ops = [{ op: 'add', entity: { kind: 'assembly', ...(id && { id }), name: 'Room', generator: { type: 'room', params: roomAround(before, opts).params } } }];
+  }
+  if (!ops.length) return { content: `The room ${existing!.id} already fits the model; nothing changed.`, isError: false, summary: 'room already fits' };
+  const result = applyOps(before, ops);
+  if (!result.ok) return fail(`Rejected — nothing changed. ${result.error}`, `fit_room rejected: ${result.error}`);
+  const after = result.doc;
+  state.draft = after;
+  state.ops.push(...ops);
+  const room = existing ? after.assemblies[existing.id]! : roomOf(after)!;
+  const p = roomParams(room);
+  const roomParts = Object.keys(after.parts).filter((id) => id.startsWith(`${room.id}.`));
+  const lines = [
+    `${existing ? 'Refit' : 'Made'} the room ${room.id} "${room.name}": inside ${formatInches(p.right - p.left)} wide (x ${p.left} to ${p.right}) × ` +
+      `${formatInches(p.front - p.back)} deep (z ${p.back} to ${p.front}), ${formatInches(p.height)} high; walls: ${p.walls.join(', ') || 'none'}${p.ceiling ? '' : '; no ceiling'}.`,
+    ...notes,
+    ...(p.openings.length ? [`Openings: ${p.openings.map(openingText).join('; ')}`] : ['No openings yet.']),
+    ...clashLines(after, overlaps(after, roomParts)),
+    ...roomCheck(before, after).map((i) => `Room check: ${i}`),
+    `Change it with apply_ops update {"id": "${room.id}", "patch": {"params": {...}}}; openings: send the whole list.`,
+  ];
+  return { content: lines.join('\n'), isError: false, summary: `✓ ${existing ? 'refit' : 'made'} the room` };
 }
 
 function clashLines(d: Doc, clash: ReturnType<typeof overlaps>): string[] {
@@ -362,7 +482,7 @@ function treeOutline(d: Doc, max = 80): string[] {
     const pad = '  '.repeat(depth + 1);
     const part = d.parts[id];
     if (part) {
-      lines.push(`${pad}${part.name} [${id}]${part.block ? ' (block)' : ''}`);
+      lines.push(`${pad}${part.name} [${id}]${part.block ? ' (block)' : isDecor(part) ? ` (${decorInfo(part.shape.type)!.label.toLowerCase()})` : ''}`);
       return;
     }
     const asm = d.assemblies[id];
@@ -498,6 +618,7 @@ export function runTool(state: ToolState, name: string, input: unknown): ToolOut
   if (name === TOOL_CUT_LIST) return { content: cutListText(cutList(state.draft)), isError: false, summary: 'read the cut list' };
   if (name === TOOL_GET_RECIPE) return getRecipeTool(state, input);
   if (name === TOOL_INSERT_RECIPE) return insertRecipeTool(state, input);
+  if (name === TOOL_FIT_ROOM) return fitRoomTool(state, input);
   return { content: `Unknown tool "${name}".`, isError: true, summary: `✗ unknown tool ${name}` };
 }
 

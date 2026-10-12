@@ -1,6 +1,8 @@
 import earcut from 'earcut';
 import type { V3 } from '../geometry/types';
 import { buildPart } from '../plugins/pipeline';
+import { decorInfo, isDecor } from '../model/decor';
+import { editorColors, partLook } from '../model/look';
 import type { Doc } from '../model/schema';
 import { UNITS_PER_INCH } from '../model/units';
 import { mul, rotation, transpose, type Mat3 } from '../model/world';
@@ -90,12 +92,18 @@ export function exportCollada(doc: Doc, title = 'Model'): string {
     const matrix = [0, 1, 2].flatMap((r) => [...m[r]!, t[r]!]).concat([0, 0, 0, 1]).map(num).join(' ');
     const open = `<node id="node${++nodeCount}" name="${escapeXml(n.name || (part ? 'Part' : 'Assembly'))}"><matrix>${matrix}</matrix>`;
     if (asm) return `${open}${asm.children.map(node).join('')}</node>`;
+    // Parts in the editor's flat colors: a finish's swatch when one was set, else the material's color;
+    // decor in its main surface's.
+    const color = () => editorColors(doc, part!, partLook(doc, part!, []))[0]!;
     const mat = part!.block
       ? material('block', BLOCKOUT_MATERIAL, BLOCK_COLOR)
-      : (() => {
-          const m = doc.materials[part!.material!];
-          return material(`m:${part!.material}`, m?.name ?? 'Material', m?.color ?? BLOCK_COLOR);
-        })();
+      : isDecor(part!)
+        ? material(`d:${part!.shape.type}:${color()}`, decorInfo(part!.shape.type)!.label, color())
+        : (() => {
+            const m = doc.materials[part!.material!];
+            const c = m ? color() : BLOCK_COLOR;
+            return material(`m:${part!.material}:${c}`, m?.name ?? 'Material', c);
+          })();
     let geo: string;
     try {
       geo = geometry(id);

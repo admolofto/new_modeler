@@ -1,7 +1,11 @@
 import { clashText, clearance } from '../src/model/clearance.ts';
 import { cutList, cutParts } from '../src/model/cutlist.ts';
-import { movingParts } from '../src/model/doc.ts';
+import { modelPartIds } from '../src/model/decor.ts';
+import { movingParts, parentIndex } from '../src/model/doc.ts';
+import { frontOf } from '../src/edit/blocks.ts';
 import { applyOps, type Op } from '../src/model/ops.ts';
+import { roomIssues, roomOf, roomParams } from '../src/model/room.ts';
+import { viewMotions } from '../src/model/views.ts';
 import { Grader, IN } from './grade.ts';
 
 /**
@@ -540,4 +544,152 @@ export const CASES: EvalCase[] = [
       g.check(hits.length === 0 || said, `opening check: ${hits.map((x) => clashText(g.doc, x)).join('; ')} (not mentioned)`);
     },
   },
+  // ── Presentation: the room around the model (`-t presentation`) ──────────────
+  {
+    name: 'presentation: room around a run, a window over the sink and a right-wall doorway',
+    start: 'empty',
+    setup: [
+      cabinet('sink', 'Sink base 36"', 0, { width: 36 * IN, doors: 2, shelves: 0 }),
+      cabinet('drawers', 'Drawer base 18"', 36, { width: 18 * IN, drawers: [0, 0, 0], shelves: 0 }),
+    ],
+    steps: ['Put a room around these cabinets, with a 36" wide window centered over the sink base and a 32" doorway in the right wall.'],
+    check(g) {
+      const all = Object.values(g.doc.assemblies).filter((a) => a.generator?.type === 'room');
+      g.check(all.length === 1, `rooms: ${all.length}`);
+      const room = roomOf(g.doc);
+      if (!room) return;
+      const p = roomParams(room);
+      g.near(p.back, 0, 'back wall flush behind the cabinets');
+      g.check(p.right >= 54 * IN && p.left <= 0, `the room holds the run (x ${p.left / IN}" to ${p.right / IN}")`);
+      const win = p.openings.find((o) => o.kind === 'window');
+      g.check(win?.wall === 'back', `window on the back wall: ${win?.wall ?? 'none'}`);
+      g.near(win?.at, 18, 'window centered over the sink', 1 / 2);
+      g.near(win?.width, 36, 'window width', 1 / 2);
+      const door = p.openings.find((o) => o.wall === 'right' && o.kind !== 'window');
+      g.check(!!door, 'a doorway on the right wall');
+      g.near(door?.width, 32, 'doorway width', 1 / 2);
+      const issues = roomIssues(g.doc);
+      g.check(issues.length === 0, `room issues: ${issues.join('; ')}`);
+      g.noOverlaps(modelPartIds(g.doc));
+    },
+  },
+  {
+    name: 'presentation: a room door near cabinets swings clear, or the AI says why not',
+    start: 'empty',
+    setup: [
+      cabinet('base', 'Base 24"', 0, { width: 24 * IN, doors: 1, shelves: 1 }),
+      {
+        op: 'add',
+        entity: { kind: 'assembly', id: 'room', name: 'Room', generator: { type: 'room', params: { left: -36 * IN, right: 48 * IN, back: 0, front: 120 * IN } } },
+      },
+    ],
+    steps: ['Add a 32" door in the right wall of the room, as close to the back corner as it can go.'],
+    check(g, replies) {
+      const room = roomOf(g.doc);
+      const p = room && roomParams(room);
+      const door = p?.openings.find((o) => o.kind === 'door' && o.wall === 'right');
+      g.check(!!door, `a door on the right wall: ${JSON.stringify(p?.openings ?? null)}`);
+      g.near(door?.width, 32, 'door width', 1 / 2);
+      const hits = clearance(g.doc).filter((c) => c.motion.startsWith('room.') || (c.with ?? '').startsWith('room.'));
+      const said = /hit|clear|swing|hinge|cabinet/i.test(replies.at(-1) ?? '');
+      g.check(hits.length === 0 || said, `opening check: ${hits.map((x) => clashText(g.doc, x)).join('; ')} (not mentioned)`);
+    },
+  },
+  {
+    name: 'presentation: island stools and pendants',
+    start: 'empty',
+    setup: [
+      // An island: a 72" run of base cabinets facing −z, its seating side (+z) open, with a top overhanging 12" there.
+      { op: 'add', entity: { kind: 'assembly', id: 'island', name: 'Island 72"', transform: { position: [72 * IN, 0, 48 * IN], rotation: [0, 180, 0] }, generator: { type: 'carcass', params: { width: 72 * IN, height: 34.5 * IN, depth: 24 * IN, material: 'ply-3-4', doors: 2 } } } },
+      { op: 'add', entity: { kind: 'part', id: 'top', name: 'Island top', material: 'ply-3-4', transform: { position: [0, 34.5 * IN, 24 * IN] }, shape: { type: 'box', params: { x: 72 * IN, y: 1.5 * IN, z: 37 * IN } } } },
+    ],
+    steps: ['Put three bar stools along the seating side of the island (the +z side, under the overhang) and two pendants over it.'],
+    check(g) {
+      const top = g.box('top');
+      const stools = g.parts((p) => p.shape.type === 'barStool');
+      const pendants = g.parts((p) => p.shape.type === 'pendant');
+      g.check(stools.length === 3, `stools: ${stools.length}`);
+      g.check(pendants.length === 2, `pendants: ${pendants.length}`);
+      if (!top) return;
+      const parents = parentIndex(g.doc);
+      for (const s of stools) {
+        const b = g.box(s.id);
+        if (!b) continue;
+        g.near(b.min[1], 0, `${s.name} on the floor`, 1 / 4);
+        g.check(b.min[0] >= top.min[0] - 6 * IN && b.max[0] <= top.max[0] + 6 * IN, `${s.name} along the island (x ${b.min[0] / IN}–${b.max[0] / IN}")`);
+        g.check(b.min[2] >= 48 * IN - 1 * IN && b.min[2] <= top.max[2] + 6 * IN, `${s.name} on the seating side (z ${b.min[2] / IN}")`);
+        g.check(frontOf(g.doc, s.id)[2] < -0.9, `${s.name} faces the island`);
+        g.check(s.shape.params.seatHeight === undefined || Math.abs((s.shape.params.seatHeight as number) - 24 * IN) <= 2 * IN, `${s.name} counter height: ${(s.shape.params.seatHeight as number) / IN}"`);
+        g.check(parents.get(s.id) !== null && parents.get(s.id) !== undefined, `${s.name} is in a folder`);
+      }
+      for (const p of pendants) {
+        const b = g.box(p.id);
+        if (!b) continue;
+        const above = (b.min[1] - top.max[1]) / IN;
+        g.check(above >= 24 && above <= 42, `${p.name} shade ${above}" above the counter`);
+        g.check(b.min[0] >= top.min[0] && b.max[0] <= top.max[0], `${p.name} over the island`);
+      }
+      g.noOverlaps(stools.map((s) => s.id));
+    },
+  },
+  {
+    name: 'presentation: a fridge block becomes a fridge in exactly its space',
+    start: 'empty',
+    setup: [
+      cabinet('base', 'Base 30"', 0, { width: 30 * IN, doors: 2 }),
+      block('fb', [30, 0, 0], [0, 0, 0], [36, 70, 30]),
+      { op: 'update', id: 'fb', patch: { name: 'Fridge 36"' } },
+    ],
+    steps: ['Show the fridge block as a real stainless French-door fridge.'],
+    check(g) {
+      g.check(!g.doc.parts.fb, 'the block is gone');
+      const fridges = Object.values(g.doc.assemblies).filter((a) => a.generator?.type === 'fridge');
+      g.check(fridges.length === 1, `fridges: ${fridges.length}`);
+      const f = fridges[0];
+      if (!f) return;
+      const p = f.generator!.params as Record<string, number | string>;
+      g.near(p.width as number, 36, 'width', 1 / 2);
+      g.near(p.height as number, 70, 'height', 1 / 2);
+      g.near(p.depth as number, 30, 'depth', 1 / 2);
+      g.check(f.transform.position[0] === 30 * IN && f.transform.position[2] === 0 && f.transform.rotation.every((r) => r === 0), `in the block's place: ${JSON.stringify(f.transform)}`);
+      g.check((p.style ?? 'french') === 'french' && (p.finish ?? 'stainless') === 'stainless', `style ${p.style}, finish ${p.finish}`);
+    },
+  },
+  {
+    name: 'presentation: a three-shot client tour',
+    start: 'empty',
+    setup: [
+      cabinet('sink', 'Sink base 36"', 0, { width: 36 * IN, doors: 2, shelves: 0 }),
+      cabinet('drawers', 'Drawer base 18"', 36, { width: 18 * IN, drawers: [0, 0, 0], shelves: 0 }),
+      { op: 'add', entity: { kind: 'assembly', id: 'island', name: 'Island 48"', transform: { position: [48 * IN, 0, 72 * IN], rotation: [0, 180, 0] }, generator: { type: 'carcass', params: { width: 48 * IN, height: 34.5 * IN, depth: 24 * IN, material: 'ply-3-4', drawers: [0, 0, 0], shelves: 0 } } } },
+    ],
+    steps: ['Set up a three-shot client tour: the whole kitchen, the island with its drawers open, the sink base with doors open.'],
+    check(g) {
+      const views = g.doc.presentation?.views ?? [];
+      g.check(views.length === 3, `views: ${views.length}`);
+      const [whole, island, sink] = views;
+      const covers = (v: typeof whole, ids: string[]) => !!v?.frame && (v.frame.nodes.length === 0 || ids.every((id) => v.frame!.nodes.includes(id)));
+      g.check(covers(whole, ['sink', 'drawers', 'island']), `shot 1 frames the whole kitchen: ${JSON.stringify(whole?.frame ?? whole?.camera)}`);
+      g.check(!!island?.frame?.nodes.includes('island'), `shot 2 frames the island: ${JSON.stringify(island?.frame)}`);
+      g.check(!!sink?.frame?.nodes.includes('sink'), `shot 3 frames the sink base: ${JSON.stringify(sink?.frame)}`);
+      const opens = (v: typeof whole, prefix: string, kind: RegExp) => (v ? viewMotions(g.doc, v) : []).filter((m) => m.startsWith(`${prefix}.`) && kind.test(m));
+      g.check(opens(island, 'island', /drawer/).length === 3, `shot 2 opens the island's drawers: ${island ? viewMotions(g.doc, island).join(', ') : 'none'}`);
+      g.check(opens(sink, 'sink', /door/).length === 2, `shot 3 opens the sink doors: ${sink ? viewMotions(g.doc, sink).join(', ') : 'none'}`);
+      g.check(views.every((v) => !!v.caption && v.caption.length <= 160), `short captions: ${views.map((v) => JSON.stringify(v.caption)).join(', ')}`);
+    },
+  },
 ];
+
+/** A carcass at x inches along the back (z = 0), facing +z. */
+function cabinet(id: string, name: string, x: number, params: Record<string, unknown>): Op {
+  return {
+    op: 'add',
+    entity: {
+      kind: 'assembly',
+      id,
+      name,
+      transform: { position: [x * IN, 0, 0] },
+      generator: { type: 'carcass', params: { width: 24 * IN, height: 34.5 * IN, depth: 24 * IN, material: 'ply-3-4', ...params } },
+    },
+  };
+}

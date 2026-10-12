@@ -116,7 +116,18 @@ export function createGrid(): Grid {
     uBounded: { value: 0 },
     uBounds: { value: new THREE.Vector4() },
   };
-  const material = new THREE.ShaderMaterial({ uniforms, vertexShader: VERTEX, fragmentShader: FRAGMENT, transparent: true, depthWrite: false, side: THREE.DoubleSide });
+  // Pushed back in depth past the model's own offset, so a surface lying on the floor (a room's floor) covers it.
+  const material = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: VERTEX,
+    fragmentShader: FRAGMENT,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    polygonOffset: true,
+    polygonOffsetFactor: 2,
+    polygonOffsetUnits: 8,
+  });
   const mesh = new THREE.Mesh(geometry, material);
   mesh.name = 'grid';
   mesh.renderOrder = -1;

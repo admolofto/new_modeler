@@ -26,6 +26,16 @@ describe('duplicating', () => {
     expect(overlaps(next, ['b1', 'b2'])).toEqual([]);
   });
 
+  it('numbers a copied prop afresh, but keeps a name the user gave it', () => {
+    const d = ok(emptyDoc(), [
+      { op: 'add', entity: { kind: 'decor', id: 'p1', shape: { type: 'barStool', params: {} } } },
+      { op: 'add', entity: { kind: 'decor', id: 'p2', name: 'Grandpa’s stool', shape: { type: 'barStool', params: {} } } },
+    ]);
+    expect(d.parts.p1!.name).toBe('Bar stool 1');
+    const next = ok(d, duplicateOps(d, ['p1', 'p2']).ops);
+    expect(Object.values(next.parts).map((p) => p.name).sort()).toEqual(['Bar stool 1', 'Bar stool 2', 'Grandpa’s stool', 'Grandpa’s stool']);
+  });
+
   it('copies a generated cabinet with its hand edits, not its variables', () => {
     const d = ok(demoDoc(), [
       { op: 'add', entity: { kind: 'variable', id: 'cabW', name: 'Width', group: 'Cabinet', value: inches(36) } },

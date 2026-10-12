@@ -2,13 +2,17 @@ import './plugins';
 import { dimensionLines, type DimLine } from './edit/dimensions';
 import { handleKind, resolveTarget } from './edit/targets';
 import { clearance } from './model/clearance';
+import { descendants, entityKind } from './model/doc';
 import { motionName } from './model/motion';
+import { roomAround, roomOf, roomShell } from './model/room';
+import { UNITS_PER_INCH } from './model/units';
 import { demoDoc } from './model/defaults';
 import type { Doc } from './model/schema';
 import { createStore } from './model/store';
 import { hiddenNodes, isolateView, outsideOf } from './model/visibility';
 import { createBlockDraft } from './render/blockDraft';
 import { createBlockLabels } from './render/blockLabels';
+import { cutaway, sameCut } from './render/cutaway';
 import { createDimensionView } from './render/dimensions';
 import { createGizmo } from './render/gizmo';
 import { createOverlay, type OverlayItem } from './render/overlay';
@@ -17,6 +21,8 @@ import { createViewport } from './render/viewport';
 import { frameNodes } from './render/frameNodes';
 import { connectBridge } from './ui/aiBridge';
 import { attachBlockTool } from './ui/blockTool';
+import { attachPlaceTool } from './ui/placeTool';
+import { mountPropsPanel } from './ui/propsPanel';
 import { mountChatPanel, proxySend, type Preview } from './ui/chatPanel';
 import { el } from './ui/dom';
 import { attachGizmo } from './ui/gizmoControl';
@@ -40,6 +46,8 @@ import { mountToasts, toast } from './ui/toast';
 import { mountSketchUp } from './ui/sketchup';
 import { mountGltfExport } from './ui/gltf';
 import { mountTopBar } from './ui/topbar';
+import { installModalKeys } from './ui/present/keys';
+import { mountPresent } from './ui/present/mount';
 import { fmt, units } from './ui/units';
 import { mountVoicePanel } from './ui/voicePanel';
 
@@ -49,6 +57,8 @@ const byId = (id: string) => {
   return e;
 };
 mountTheme();
+// Before any other key handler: presentation mode owns the keyboard while it runs.
+installModalKeys();
 const [app, bar, left, stage, right, container] = ['app', 'topbar', 'left', 'stage', 'right', 'viewport'].map(byId) as [HTMLElement, HTMLElement, HTMLElement, HTMLElement, HTMLElement, HTMLElement];
 
 const viewport = createViewport(container);
@@ -74,7 +84,7 @@ let draftDims: DimLine[] | null = null;
 const aiOutside = (p: Preview | null, id: string) => !!p && (!p.doc.assemblies[id] || outsideOf(p.doc, id, p.highlight).length > 0);
 const isolation = mountIsolation({
   viewport, store, stage, selection,
-  toolActive: () => blockTool.active || splitTool.active,
+  toolActive: () => blockTool.active || splitTool.active || placeTool.active,
   blocked: (id) => (aiOutside(aiPreview, id) ? 'The AI’s proposed change reaches outside this folder. Accept or reject it first.' : null),
 });
 /** The model on screen, every folder showing; `shown` is what's drawn (an isolated folder only). */
@@ -82,8 +92,10 @@ const modelShown = () => dragPreview ?? aiPreview?.doc ?? store.doc;
 const view = (doc: Doc) => isolateView(doc, isolation.id);
 const shown = () => view(modelShown());
 const editBlocked = () => (proposals.pending ? 'Accept or reject the AI’s proposed change before editing the model directly.' : null);
+/** Presentation mode is on: it shows the store's doc (never a preview), so the player works on that. */
+let presenting = false;
 /** How far doors, drawers and lids are open: a view on top of the model. */
-const player = createMotionPlayer({ viewport, doc: modelShown });
+const player = createMotionPlayer({ viewport, doc: () => (presenting ? store.doc : modelShown()) });
 /** What hits something at how far things are open now: the mover and what it hits, tinted warn. */
 function clashTint(): Set<string> {
   const ids = new Set<string>();
@@ -98,7 +110,7 @@ function clashTint(): Set<string> {
 function overlayItems(doc: Doc, sel: Selection): OverlayItem[] {
   const items: OverlayItem[] = [];
   const add = (t: (typeof sel.targets)[number], style: OverlayItem['style']) => {
-    if (!doc.parts[t.node]) return;
+    if (!doc.parts[t.node] || cutParts.has(t.node)) return;
     if (!t.handle) return items.push({ partId: t.node, kind: 'part', style });
     const kind = handleKind(t.handle, resolveTarget(doc, t)?.handle);
     if (kind === 'face') return items.push({ partId: t.node, kind, tag: t.handle, style });
@@ -115,11 +127,16 @@ function updateDimensions(doc: Doc): void {
   dimensions.set(draftDims ?? (top.dims ? dimensionLines(doc, selection.targets) : []), fmt);
 }
 
+/** Room walls between the camera and the room, with what they host (render/cutaway.ts): not drawn, not picked. */
+let cut: ReadonlySet<string> = new Set();
+let cutParts = new Set<string>();
+
 let ready = false; // panels call back into render while they mount
 const render = () => {
   if (!ready) return;
   const doc = shown();
-  player.sync(doc);
+  // A pending AI proposal can't drop what a presentation has open.
+  player.sync(presenting ? store.doc : doc);
   sceneSync.setWarn(clashTint());
   sceneSync.update(doc, { ...(aiPreview && !dragPreview && { highlight: aiPreview.highlight }), amount: player.amount });
   const hidden = hiddenNodes(doc);
@@ -196,7 +213,7 @@ const gizmoCtl = attachGizmo({
   shown,
   view,
   editBlocked,
-  toolActive: () => blockTool.active || splitTool.active,
+  toolActive: () => blockTool.active || splitTool.active || placeTool.active,
   posed: () => player.anyOpen,
   setDragPreview: (doc) => {
     dragPreview = doc;
@@ -223,7 +240,7 @@ const interaction = attachInteraction({
   onStatus: (msg, error) => toast(msg, error),
   onHover: (t) => voice.session.hover(t),
   ignorePins: () => voice.session.recording,
-  toolActive: () => blockTool.active || splitTool.active,
+  toolActive: () => blockTool.active || splitTool.active || placeTool.active,
   posed: () => player.anyOpen,
   gizmo: gizmoCtl,
 });
@@ -262,21 +279,32 @@ const splitTool = attachSplitTool({
   setSnapNode,
   onStatus: (msg, error) => toast(msg, error),
 });
+const placeTool = attachPlaceTool({ viewport, sceneSync, store, selection, editBlocked, onStatus: (msg, error) => toast(msg, error) });
 // One tool at a time; drawing works on the closed model.
 blockTool.subscribe(() => {
   if (!blockTool.active) return;
   splitTool.toggle(false);
+  placeTool.stop();
   player.closeAll();
+});
+placeTool.subscribe(() => {
+  if (placeTool.active) {
+    blockTool.toggle(false);
+    splitTool.toggle(false);
+  }
+  gizmoCtl.sync();
 });
 splitTool.subscribe(() => {
   if (splitTool.active) {
     blockTool.toggle(false);
+    placeTool.stop();
     player.closeAll();
   }
   gizmoCtl.sync();
 });
-const motionControls = mountMotionControls({ slot: top.view, player, shown: modelShown, selection, toolActive: () => blockTool.active || splitTool.active });
+const motionControls = mountMotionControls({ slot: top.view, player, shown: modelShown, selection, toolActive: () => blockTool.active || splitTool.active || placeTool.active });
 player.onMove(() => {
+  if (presenting) return; // the presentation poses its own scene; leaving it redraws this one
   const doc = shown();
   sceneSync.pose(doc, player.amount);
   sceneSync.setWarn(clashTint());
@@ -285,7 +313,24 @@ player.onMove(() => {
 player.subscribe(() => gizmoCtl.sync());
 const blockBtn = el('button', { class: 'btn ghost', title: 'Draw blocks: rough placeholders you then tell the AI about (B)' }, icon('box'), el('span', { class: 't' }, 'Block'));
 blockBtn.addEventListener('click', () => blockTool.toggle());
-top.draw.append(blockBtn);
+const roomBtn = el('button', { class: 'btn ghost', title: 'Room: walls, a floor and a ceiling around the model; click a wall to add a window or door there' }, icon('room'), el('span', { class: 't' }, 'Room'));
+roomBtn.addEventListener('click', () => {
+  const doc = store.doc;
+  const existing = roomOf(doc);
+  if (existing) return selection.set([{ node: existing.id }]);
+  const blocked = editBlocked();
+  if (blocked) return toast(blocked, true);
+  blockTool.toggle(false);
+  splitTool.toggle(false);
+  const id = entityKind(doc, 'room') === null ? 'room' : undefined;
+  const r = store.dispatch([{ op: 'add', entity: { kind: 'assembly', ...(id && { id }), name: 'Room', generator: { type: 'room', params: roomAround(doc).params } } }]);
+  if (!r.ok) return toast(r.error, true);
+  const room = roomOf(store.doc);
+  if (room) selection.set([{ node: room.id }]);
+  toast('Room added around the model. Click a wall to add a window or door there; orbit to look in.');
+});
+top.draw.append(blockBtn, roomBtn);
+mountPropsPanel({ slot: top.draw, placeTool });
 const syncBlockBtn = () => {
   blockBtn.setAttribute('aria-pressed', String(blockTool.active));
   gizmoCtl.sync();
@@ -326,6 +371,35 @@ selection.subscribe(() => {
     updateDimensions(shown());
   }
 });
+// The editor cutaway: walls between the camera and the room (and the ceiling seen from above) step aside.
+viewport.onFrame(() => {
+  if (!ready || presenting) return;
+  const doc = shown();
+  const shell = roomShell(doc);
+  if (!shell.walls.length && !shell.ceilings.length && !cut.size) return;
+  const eye = viewport.camera.position;
+  const next = cutaway(shell.walls, shell.ceilings, [eye.x * UNITS_PER_INCH, eye.y * UNITS_PER_INCH, eye.z * UNITS_PER_INCH], 'orbit', cut);
+  if (sameCut(next, cut)) return;
+  cut = next;
+  cutParts = new Set([...cut].flatMap((id) => (doc.parts[id] ? [id] : descendants(doc, id).filter((c) => doc.parts[c]))));
+  sceneSync.setCutaway(cut);
+  overlay.setItems(overlayItems(doc, selection));
+});
+const present = mountPresent({
+  slot: top.view, app, stage, container, viewport, store, player,
+  quiesce: () => {
+    blockTool.toggle(false);
+    placeTool.stop();
+    splitTool.toggle(false);
+    interaction.cancelDrag();
+    selection.setHover(null);
+    if (voice.session.recording) voice.session.cancel();
+  },
+  setPresenting: (on) => {
+    presenting = on;
+    if (!on) render();
+  },
+});
 ready = true;
 render();
 
@@ -339,4 +413,4 @@ window.addEventListener('keydown', (e) => {
   e.preventDefault();
 });
 
-if (import.meta.env.DEV) Object.assign(window, { __modeler: { store, scene: viewport.scene, sceneSync, selection, proposals, viewport, voice, shop, notes, units, blockTool, splitTool, gizmo: gizmoCtl, isolation, player } });
+if (import.meta.env.DEV) Object.assign(window, { __modeler: { store, scene: viewport.scene, sceneSync, selection, proposals, viewport, voice, shop, notes, units, blockTool, splitTool, placeTool, gizmo: gizmoCtl, isolation, player, present } });

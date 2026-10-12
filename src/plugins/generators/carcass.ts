@@ -1,7 +1,19 @@
 import { z } from 'zod';
-import type { Feature, Vec3 } from '../../model/schema';
+import { Finish, type Feature, type Vec3 } from '../../model/schema';
 import { formatInches as f, inches } from '../../model/units';
 import { PluginError, registerGenerator, type GenFace, type GenFaceDrive, type GenGroup, type GenJoint, type GenMotion, type GenPart } from '../registry';
+import { PULL_FINISH, PULL_STYLES, pullBox, type PullParams, type PullStyle } from '../shapes/decor/hardware';
+
+/** Generated pulls: one style for the whole cabinet, placed by rule. */
+export interface CarcassPulls {
+  style: PullStyle;
+  length?: number | undefined;
+  finish?: Finish | undefined;
+  /** Door pulls: by cabinet kind (auto), or near the top, middle or bottom of the door. */
+  doorAt?: 'auto' | 'top' | 'middle' | 'bottom' | undefined;
+  /** Drawer pulls: centered on the front, or near its top. */
+  drawerAt?: 'center' | 'top' | undefined;
+}
 
 export interface CarcassParams {
   width: number;
@@ -24,6 +36,10 @@ export interface CarcassParams {
   doorHinge?: 'left' | 'right' | undefined;
   /** How far the doors open, in degrees (default 105). */
   doorAngle?: number | undefined;
+  /** A pull on every drawer front and door (null: none). */
+  pulls: CarcassPulls | null;
+  /** How the drawer fronts and doors look (a look, not stock); null or none: like the rest. */
+  frontFinish?: Finish | null | undefined;
 }
 
 const DADO_DEPTH = inches(1 / 4);
@@ -43,6 +59,14 @@ const MIN_DOOR = inches(8);
 const CUP_D = 88;
 const CUP_IN = 57;
 const CUP_END = inches(3.5);
+/** Door pulls: centered this far in from the opening edge, and this far from the door's top or bottom. */
+const PULL_EDGE = inches(1.5);
+const PULL_END = inches(3);
+/** Doors at least this tall (a pantry's) get their pull centered at `PULL_REACH` above the cabinet's bottom. */
+const TALL_DOOR = inches(48);
+const PULL_REACH = inches(40);
+/** A top-mounted drawer pull's center sits this far below the front's top (or mid-front, if that's lower). */
+const PULL_TOP = inches(2);
 
 const schema = z
   .object({
@@ -65,6 +89,17 @@ const schema = z
     doors: z.int().min(0).max(2).default(0),
     doorHinge: z.enum(['left', 'right']).optional(),
     doorAngle: z.number().gt(0).max(180).optional(),
+    pulls: z
+      .object({
+        style: z.enum(PULL_STYLES).default('bar'),
+        length: z.int().positive().optional(),
+        finish: Finish.optional(),
+        doorAt: z.enum(['auto', 'top', 'middle', 'bottom']).optional(),
+        drawerAt: z.enum(['center', 'top']).optional(),
+      })
+      .nullable()
+      .default(null),
+    frontFinish: Finish.nullable().optional(),
   })
   .refine((p) => !p.toeKick || p.toeKick.height < p.height / 2, {
     message: 'toe kick must be less than half the cabinet height',
@@ -140,7 +175,7 @@ function generate(p: CarcassParams, materials: Materials) {
   const joints: GenJoint[] = [];
   const motions: GenMotion[] = [];
   let group: string | undefined; // the folder panels go in
-  const panel = (role: string, name: string, grain: GenPart['grain'], position: Vec3, size: Vec3, material = p.material, features: Feature[] = []) =>
+  const panel = (role: string, name: string, grain: GenPart['grain'], position: Vec3, size: Vec3, material = p.material, features: Feature[] = [], finish?: Finish) =>
     parts.push({
       role,
       name,
@@ -149,8 +184,23 @@ function generate(p: CarcassParams, materials: Materials) {
       position,
       shape: { type: 'box', params: { x: size[0], y: size[1], z: size[2] } },
       ...(features.length && { features }),
+      ...(finish && { finish }),
       ...(group !== undefined && { group }),
     });
+  /** A pull centered at (cx, cy) on the face at z of the front `on` (decor: no material). */
+  const pull = (role: string, name: string, orientation: 'h' | 'v', cx: number, cy: number, z: number, on: string) => {
+    const params = pullParams(p.pulls!, orientation);
+    const [bx, by] = pullBox(params);
+    parts.push({
+      role,
+      name,
+      grain: 'none',
+      position: [Math.round(cx - bx / 2), Math.round(cy - by / 2), z],
+      shape: { type: 'pull', params: params as unknown as Record<string, unknown> },
+      mountedOn: on,
+      ...(group !== undefined && { group }),
+    });
+  };
 
   panel('side-left', 'Left side', 'y', [0, 0, sideZ], [T, H, D - sideZ]);
   panel('side-right', 'Right side', 'y', [W - T, 0, sideZ], [T, H, D - sideZ]);
@@ -185,7 +235,7 @@ function generate(p: CarcassParams, materials: Materials) {
       group = r;
       const top = frontTop;
       const bottom = top - fh;
-      panel(`${r}-front`, `Drawer ${n} front`, 'x', [SIDE_REVEAL, bottom, D], [W - 2 * SIDE_REVEAL, fh, FT], frontMat);
+      panel(`${r}-front`, `Drawer ${n} front`, 'x', [SIDE_REVEAL, bottom, D], [W - 2 * SIDE_REVEAL, fh, FT], frontMat, [], p.frontFinish ?? undefined);
       // The box fits inside its front's band, clear of the carcass top and bottom.
       const lo = Math.max(bottom, kH + T) + BOX_CLEAR;
       const hi = Math.min(top, H - T) - BOX_CLEAR;
@@ -201,9 +251,14 @@ function generate(p: CarcassParams, materials: Materials) {
           joints.push({ role: `${r}-${end}-${side}`, type: 'rabbet', parts: [`${r}-side-${side}`, `${r}-${end}`], params: { depth: Math.round(DT / 2) } });
         }
       }
-      // Full-extension slides: the box comes all the way out.
+      if (p.pulls) {
+        const cy = p.pulls.drawerAt === 'top' ? top - Math.min(fh / 2, PULL_TOP) : bottom + fh / 2;
+        pull(`${r}-pull`, `Drawer ${n} pull`, 'h', W / 2, cy, D + FT, `${r}-front`);
+      }
+      // Full-extension slides: the whole folder comes all the way out (with anything put in it), as long
+      // as the box is there: a false front (its box taken out) stays put.
       const drawerParts = ['front', 'bottom', 'side-left', 'side-right', 'back', 'sub-front'].map((s) => `${r}-${s}`);
-      motions.push({ role: r, name: `Drawer ${n}`, type: 'slide', parts: drawerParts, params: { distance: boxD } });
+      motions.push({ role: r, name: `Drawer ${n}`, type: 'slide', nodes: [r], requires: drawerParts, params: { distance: boxD } });
       ceiling = lo - BOX_CLEAR;
       frontTop = bottom - FRONT_GAP;
       group = undefined;
@@ -226,9 +281,27 @@ function generate(p: CarcassParams, materials: Materials) {
             { role: 'door-right', name: 'Right door', x: SIDE_REVEAL + half + FRONT_GAP, w: span - FRONT_GAP - half, side: 'right' },
           ]
         : [{ role: 'door', name: 'Door', x: SIDE_REVEAL, w: span, side: p.doorHinge ?? 'left' }];
+    // Each door in its own folder ("Left door", role door-left-leaf), which swings: the door part keeps
+    // its role and id, and its pull (or anything put in the folder) swings with it.
     for (const leaf of leaves) {
-      panel(leaf.role, leaf.name, 'y', [leaf.x, kH, D], [leaf.w, dh, FT], frontMat, hingeCups(leaf.w, dh, FT, leaf.side));
-      motions.push({ role: leaf.role, name: leaf.name, type: 'hinge', parts: [leaf.role], params: { side: leaf.side, ...(p.doorAngle !== undefined && { angle: p.doorAngle }) } });
+      const folder = `${leaf.role}-leaf`;
+      groups.push({ role: folder, name: leaf.name });
+      group = folder;
+      panel(leaf.role, leaf.name, 'y', [leaf.x, kH, D], [leaf.w, dh, FT], frontMat, hingeCups(leaf.w, dh, FT, leaf.side), p.frontFinish ?? undefined);
+      if (p.pulls) {
+        const cx = leaf.side === 'left' ? leaf.x + leaf.w - PULL_EDGE : leaf.x + PULL_EDGE;
+        const by = pullBox(pullParams(p.pulls, 'v'))[1];
+        pull(`${leaf.role}-pull`, `${leaf.name} pull`, 'v', cx, doorPullCenter(p.pulls.doorAt ?? 'auto', kH, dh, by, !!p.toeKick), D + FT, leaf.role);
+      }
+      group = undefined;
+      motions.push({
+        role: leaf.role,
+        name: leaf.name,
+        type: 'hinge',
+        nodes: [folder],
+        requires: [leaf.role],
+        params: { side: leaf.side, ...(p.doorAngle !== undefined && { angle: p.doorAngle }) },
+      });
     }
   }
 
@@ -270,6 +343,30 @@ function generate(p: CarcassParams, materials: Materials) {
   return { parts, groups, joints, motions };
 }
 
+/** The pull a cabinet's `pulls` puts on a front: its style, length and finish, turned for a drawer (h) or door (v). */
+function pullParams(pulls: CarcassPulls, orientation: 'h' | 'v'): PullParams {
+  return { style: pulls.style, ...(pulls.length !== undefined && { length: pulls.length }), orientation, finish: structuredClone(pulls.finish ?? PULL_FINISH) };
+}
+
+/**
+ * Where a door pull's center goes (assembly y) on a door `height` tall from `bottom`, for a pull `by`
+ * long. auto: tall doors at a comfortable reach above the cabinet's bottom; base cabinets (a toe
+ * kick) near the top; wall cabinets (none) near the bottom. Always on the door.
+ */
+export function doorPullCenter(at: NonNullable<CarcassPulls['doorAt']>, bottom: number, height: number, by: number, toeKick: boolean): number {
+  const top = bottom + height;
+  const nearTop = top - PULL_END - by / 2;
+  const nearBottom = bottom + PULL_END + by / 2;
+  const y =
+    at === 'top' ? nearTop :
+    at === 'bottom' ? nearBottom :
+    at === 'middle' ? bottom + height / 2 :
+    height >= TALL_DOOR ? PULL_REACH :
+    toeKick ? nearTop :
+    nearBottom;
+  return Math.min(Math.max(y, bottom + by / 2), top - by / 2);
+}
+
 const DIMS = ['width', 'height', 'depth'] as const;
 
 /**
@@ -291,7 +388,9 @@ function faceDrive(p: CarcassParams, f: GenFace): GenFaceDrive | null {
 
 registerGenerator<CarcassParams>({
   type: 'carcass',
-  version: 1,
+  // v2: each door in a folder that swings (door-left-leaf…), drawer motions move their folders; pulls, frontFinish.
+  version: 2,
+  migrate: (p) => p,
   schema: schema as z.ZodType<CarcassParams>,
   describe:
     'Frameless cabinet box (base, wall or tall cabinet, vanity, drawer bank). Params (lengths in 1/64"): width, height, depth ' +
@@ -308,8 +407,14 @@ registerGenerator<CarcassParams>({
     'doors open, default 105°). Doors get 35 mm hinge-cup bores on the back. Drawers slide and doors swing on their own (generated ' +
     'animations): don\'t add motions for them; change doorHinge / doorAngle instead. Origin = left-back-bottom corner. ' +
     'Part roles: side-left, side-right, bottom, top, back, kick, shelf-N, drawer-N-front, drawer-N-bottom, drawer-N-side-left, ' +
-    'drawer-N-side-right, drawer-N-back, drawer-N-sub-front (N from the top), door (one) or door-left / door-right (a pair). ' +
-    'Each drawer\'s parts are generated in their own folder, role drawer-N, named "Drawer N" (id <assembly id>.drawer-N).',
+    'drawer-N-side-right, drawer-N-back, drawer-N-sub-front, drawer-N-pull (N from the top), door (one) or door-left / door-right ' +
+    '(a pair), and <door role>-pull. Each drawer\'s parts are generated in their own folder, role drawer-N, named "Drawer N" (id ' +
+    '<assembly id>.drawer-N); each door in its own folder, role <door role>-leaf ("Left door", id <assembly id>.door-left-leaf). The ' +
+    'folders open (slide or swing), so anything you put in one moves with it. pulls (null = none, the default): {style ("bar" | ' +
+    '"arch" | "cup" | "edge" | "knob" | "tab"), length? (center to center; default per style), finish? (default brushed nickel), ' +
+    'doorAt? ("auto": near the top on base cabinets, near the bottom on wall cabinets, 40" up on tall doors; "top" | "middle" | ' +
+    '"bottom"), drawerAt? ("center" | "top")}: a pull on every drawer front (centered, horizontal) and door (vertical, 1 1/2" in from ' +
+    'the opening edge). frontFinish: the finish of the drawer fronts and doors (two-tone; null clears it).',
   generate: (p, ctx) => generate(p, ctx.materials),
   faceDrive,
   materialRefs: (p) => {

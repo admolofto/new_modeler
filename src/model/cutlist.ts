@@ -6,6 +6,7 @@ import type { HoleParams } from '../plugins/features/hole';
 import type { PocketParams } from '../plugins/features/pocket';
 import { BOX_FACES, WORDS, type BoxFaceId } from '../plugins/shapes/box';
 import type { OutlineParams } from '../plugins/shapes/outline';
+import { isShopPart } from './decor';
 import { CHANNEL_JOINTS, jointContact, jointDepth } from './joinery';
 import { nestSheets, type SheetLayout } from './nesting';
 import type { Doc, Feature, Material, Part } from './schema';
@@ -15,8 +16,9 @@ import { boxSize, localBox } from './world';
 /**
  * The cut list: every part at the size to cut it, joinery included (a part sitting in a 1/4" dado
  * at each end is 1/2" longer than it looks), what to machine on it, grouped by material and
- * thickness, with sheet layouts (`nesting.ts`) and board-foot estimates. Pure: formats lengths with the
- * `fmt` it's given.
+ * thickness, with sheet layouts (`nesting.ts`) and board-foot estimates; slabs (stone tops) are
+ * fabricated to size, so they're just listed by size. Blocks and decor aren't parts to cut. Pure:
+ * formats lengths with the `fmt` it's given.
  */
 
 export interface Allowance {
@@ -219,8 +221,8 @@ export function cutParts(doc: Doc, opts: CutListOptions = {}): { parts: CutPart[
 
   const parts: CutPart[] = [];
   for (const part of Object.values(doc.parts)) {
-    // Blocks are placeholders, not parts to cut.
-    const mat = part.block || !part.material ? undefined : doc.materials[part.material];
+    // Blocks are placeholders and decor (room pieces, props, hardware) is bought: not parts to cut.
+    const mat = !isShopPart(part) || !part.material ? undefined : doc.materials[part.material];
     if (!mat) continue;
     let size: V3;
     let shaped = false;
@@ -313,6 +315,8 @@ export function cutList(doc: Doc, opts: CutListOptions = {}): CutList {
       entry.sheets = { count, size, utilization, oversize: nest.oversize, layouts: nest.sheets };
       for (const name of nest.oversize) problems.push(`${name} is bigger than a ${formatInches(size[0])} × ${formatInches(size[1])} sheet of ${material.name}`);
       if (material.price !== undefined) entry.cost = count * material.price;
+    } else if (material.stock === 'slab') {
+      // Fabricated to these sizes: no layout, no board feet.
     } else {
       const nominal = nominalThickness(material);
       const net = list.reduce((s, p) => s + (sq(p.length) * sq(p.width) * sq(Math.max(nominal, p.thickness))) / 144, 0);
@@ -362,7 +366,9 @@ export function cutListText(list: CutList, fmt: (u: number) => string = formatIn
       ? `${m.sheets.count} sheet${m.sheets.count === 1 ? '' : 's'} ${fmt(m.sheets.size[0])} × ${fmt(m.sheets.size[1])}`
       : m.boardFeet
         ? `${m.boardFeet.net.toFixed(1)} bd ft at ${quarters(m.boardFeet.nominal)} (≈ ${m.boardFeet.withWaste.toFixed(1)} with waste)`
-        : '';
+        : m.material.stock === 'slab'
+          ? `slab, ${(m.area / 144).toFixed(1)} sq ft — fabricated to these sizes`
+          : '';
     lines.push(`${m.material.name} (${m.material.id}, ${fmt(m.material.thickness)}): ${m.parts} part${m.parts === 1 ? '' : 's'}${est ? `, ${est}` : ''}`);
     for (const r of m.rows) {
       const allow = r.allowances.length ? ` [includes ${r.allowances.map((a) => `+${fmt(a.depth)} ${a.along} into ${a.mate}`).join(', ')}]` : '';

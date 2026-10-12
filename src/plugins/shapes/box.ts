@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { channeledBox, type Block } from '../../geometry/orthogonal';
+import { channeledBox, type Block, type BoxFaceInfo } from '../../geometry/orthogonal';
 import { GeometryError, unitAxis, type Axis, type Prism } from '../../geometry/prism';
 import type { Geom, Handle, V3 } from '../../geometry/types';
 import { formatInches } from '../../model/units';
@@ -48,6 +48,12 @@ const NAME_ORDER: Axis[] = [1, 2, 0];
 function boxFace(axis: Axis, max: boolean): BoxFaceId {
   return BOX_FACE_IDS.find((id) => BOX_FACES[id].axis === axis && BOX_FACES[id].max === max)!;
 }
+
+/** A box's own faces for `channeledBox`: each axis side's `face:*` tag and its (u, v) frame. */
+export const boxFaceInfo: BoxFaceInfo = (axis, max) => {
+  const id = boxFace(axis, max);
+  return { tag: id, u: BOX_FACES[id].u, v: BOX_FACES[id].v };
+};
 
 /** Name of the box edge where two faces meet, e.g. (y max, z max) → `edge:top-front`. */
 function boxEdge(ax1: Axis, max1: boolean, ax2: Axis, max2: boolean): string {
@@ -178,10 +184,7 @@ function boxChanneled(p: BoxParams, channels: ChannelSpec[], partName: string): 
     max[f.v] = Math.max(c.from[1], c.to[1]);
     return { featureId: c.featureId, min, max, axis: f.axis, label: c.label };
   });
-  return channeledBox(size, blocks, (axis, max) => {
-    const id = boxFace(axis, max);
-    return { tag: id, u: BOX_FACES[id].u, v: BOX_FACES[id].v };
-  }, partName);
+  return channeledBox(size, blocks, boxFaceInfo, partName);
 }
 
 registerShape<BoxParams>({

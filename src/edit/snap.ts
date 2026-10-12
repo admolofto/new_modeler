@@ -91,7 +91,8 @@ export function inferLine(doc: Doc, hd: HandleDrives, dir: V3, raw: number, tol:
     for (const [c, max] of [[b.min[k], false], [b.max[k], true]] as const) {
       cands.push({ s: sign * (c - p0), label: `flush with ${name} ${WORDS[k][max ? 1 : 0]}`, node: id, rank: 0 });
     }
-    if (drive && drive.value > 0) cands.push({ s: (b.max[k] - b.min[k] - drive.value) / g, label: `${drive.label} = ${name} ${DIM[k]}`, node: id, rank: 1 });
+    // A position drive (where a wall stands) has no size to match.
+    if (drive && drive.value > 0 && drive.kind !== 'position') cands.push({ s: (b.max[k] - b.min[k] - drive.value) / g, label: `${drive.label} = ${name} ${DIM[k]}`, node: id, rank: 1 });
   }
   return closest(cands, raw, tol);
 }

@@ -1,9 +1,11 @@
 import { features, generators, motions, PluginError, shapes } from '../plugins';
 import { buildPart } from '../plugins/pipeline';
+import { isDecor } from './decor';
 import { descendants, ModelError } from './doc';
+import { finishError } from './finishes';
 import { generatedOwner, genMotionId } from './generate';
 import { parseFormula } from './expr';
-import { Doc as DocSchema, type Doc } from './schema';
+import { Doc as DocSchema, type Doc, type Finish } from './schema';
 import { allBindings, evaluateBinding, fieldLabel, getField } from './variables';
 
 /** Full integrity check. Returns every problem found (empty = valid). */
@@ -24,13 +26,26 @@ export function docErrors(d: Doc): string[] {
     annotation: d.annotations,
     variable: d.variables,
     motion: d.motions,
+    view: Object.fromEntries((d.presentation?.views ?? []).map((v, i) => [String(i), v])),
   })) {
     for (const [key, e] of Object.entries(coll)) {
-      if (key !== e.id) errors.push(`${kind} stored under "${key}" has id "${e.id}"`);
+      if (kind !== 'view' && key !== e.id) errors.push(`${kind} stored under "${key}" has id "${e.id}"`);
       const prev = seen.get(e.id);
       if (prev) errors.push(`id "${e.id}" is used by both a ${prev} and a ${kind}`);
       seen.set(e.id, kind);
     }
+  }
+
+  // Finishes: presets from the vocabulary (model/finishes.ts).
+  const checkFinish = (where: string, f: Finish | undefined) => {
+    const problem = f && finishError(f);
+    if (problem) errors.push(`${where}: ${problem}`);
+  };
+  for (const m of Object.values(d.materials)) checkFinish(`material "${m.name}"`, m.finish);
+  for (const p of Object.values(d.parts)) checkFinish(`part "${p.name}" (${p.id})`, p.finish);
+  for (const a of Object.values(d.assemblies)) {
+    checkFinish(`assembly "${a.name}"`, a.finish);
+    for (const [role, ov] of Object.entries(a.generator?.overrides ?? {})) checkFinish(`assembly "${a.name}" override ${role}`, ov.finish);
   }
 
   // Tree: every node referenced exactly once, no cycles.
@@ -68,6 +83,13 @@ export function docErrors(d: Doc): string[] {
       if (part.grain !== 'none') errors.push(`${where}: blocks have no grain`);
       if (part.features.length) errors.push(`${where}: blocks can't take features — build a real part in its place`);
       if (part.role !== undefined) errors.push(`${where}: generated parts can't be blocks`);
+      if (part.finish) errors.push(`${where}: blocks have no finish`);
+    } else if (isDecor(part)) {
+      // Room pieces, props, hardware: their looks are in their shape params; nothing to cut or join.
+      if (part.material !== undefined) errors.push(`${where}: decor has no material`);
+      if (part.finish) errors.push(`${where}: decor has no finish (its looks are in its shape params)`);
+      if (part.features.length) errors.push(`${where}: decor can't take features`);
+      if (part.joinery?.length) errors.push(`${where}: decor isn't joined`);
     } else if (part.material === undefined) {
       errors.push(`${where}: has no material`);
     } else if (!d.materials[part.material]) {
@@ -139,6 +161,7 @@ export function docErrors(d: Doc): string[] {
     for (const p of j.parts) {
       if (!d.parts[p]) errors.push(`joint ${j.id}: part "${p}" doesn't exist`);
       else if (d.parts[p].block) errors.push(`joint ${j.id}: "${d.parts[p].name}" is a block; joints join real parts`);
+      else if (isDecor(d.parts[p])) errors.push(`joint ${j.id}: "${d.parts[p].name}" is decor; joints join real parts`);
     }
     if (j.parts[0] === j.parts[1]) errors.push(`joint ${j.id}: joins a part to itself`);
   }

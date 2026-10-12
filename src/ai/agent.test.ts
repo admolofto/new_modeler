@@ -78,7 +78,9 @@ describe('tool schemas', () => {
       expect(text).toContain(needle);
     }
     expect(inspect!.name).toBe('inspect_part');
-    expect(text.length).toBeLessThan(40_000);
+    // The room (presentation phase 5) grew it past 40k, props and appliances (phase 7) to ~58k;
+    // toolBudget.test.ts guards the whole set.
+    expect(text.length).toBeLessThan(64_000);
   });
 
   it('converts inch strings to model units', () => {

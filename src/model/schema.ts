@@ -8,7 +8,7 @@ import { z } from 'zod';
  * Shape / feature / generator params are opaque records here; the plugin
  * registry validates them (see plugins/registry.ts).
  */
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 export const Id = z.string().regex(/^[A-Za-z0-9_\-.:]+$/, 'ids may only contain letters, digits and _ - . :');
 export const Vec3 = z.tuple([z.int(), z.int(), z.int()]);
@@ -26,19 +26,36 @@ export const Transform = z.object({
   rotation: Rotation,
 });
 
+/** `#rrggbb`. */
+export const Hex = z.string().regex(/^#[0-9a-fA-F]{6}$/);
+
+/**
+ * A look, not stock: how a surface renders (paint, a stain, stone, metal…). `preset` is one of the
+ * finish vocabulary's ids (model/finishes.ts; the validator checks it): `paint`, `wood:walnut`,
+ * `metal:brushed-nickel`. `color` is the paint color, or the stain tint for wood.
+ */
+export const Finish = z.object({
+  preset: z.string().regex(/^[a-z]+(?::[a-z0-9-]+)?$/, 'a finish preset looks like "paint" or "wood:walnut"'),
+  color: Hex.optional(),
+  roughness: z.number().min(0).max(1).optional(),
+});
+
 export const Material = z.object({
   id: Id,
   name: z.string().min(1),
   /** Actual thickness, e.g. 3/4" ply = 23/32" = 46. */
   thickness: z.int().positive(),
-  color: z.string().regex(/^#[0-9a-fA-F]{6}$/),
-  stock: z.enum(['sheet', 'solid']),
+  color: Hex,
+  /** Sheet goods, solid wood, or a fabricated slab (stone / quartz tops: sized, not nested). */
+  stock: z.enum(['sheet', 'solid', 'slab']),
   /** Sheet goods: sheet size [width, length]; default 48" × 96". Grain runs along the length. */
   sheet: z.tuple([z.int().positive(), z.int().positive()]).optional(),
   /** Solid wood: nominal (rough) thickness board feet are sold by, e.g. 4/4 = 1" = 64. Default: actual + 1/4". */
   nominal: z.int().positive().optional(),
   /** Price per sheet (sheet goods) or per board foot (solid), for the cost estimate. */
   price: z.number().nonnegative().optional(),
+  /** How it looks; absent = inferred from its id and name (model/finishes.ts `inferFinish`). */
+  finish: Finish.optional(),
 });
 
 export const Shape = z.object({ type: z.string().min(1), params: Params });
@@ -77,6 +94,8 @@ export const Part = z.object({
    * never in the cut list. Its frame is the frame of what it stands for: local +Z is its front.
    */
   block: z.literal(true).optional(),
+  /** Its look, over its material's (stock parts only; decor carries its looks in its shape params). */
+  finish: Finish.optional(),
 });
 
 /** A user tweak to one generated part, re-applied on every regenerate. */
@@ -94,6 +113,7 @@ export const Override = z.object({
   shape: Params.optional(),
   /** Full feature list when it differs from the generator's (i.e. user-added features). */
   features: z.array(Feature).optional(),
+  finish: Finish.optional(),
 });
 
 export const GeneratorRef = z.object({
@@ -120,6 +140,8 @@ export const Assembly = z.object({
    * are grouped under, and its overrides key. Directly inside its generating assembly.
    */
   role: z.string().optional(),
+  /** A look every stock part below inherits (unless one sets its own). */
+  finish: Finish.optional(),
 });
 
 export const JointType = z.enum(['butt', 'dado', 'rabbet', 'dowel', 'pocketScrew']);
@@ -191,6 +213,48 @@ export const Motion = z.object({
   role: z.string().optional(),
 });
 
+/** A saved camera pose (model units; scene-free). */
+export const ViewCamera = z.object({ position: Vec3, target: Vec3, fov: z.number().min(10).max(120).default(50) });
+
+/** A semantic shot the app fits to the nodes (or the whole model, not the room): what the AI writes. */
+export const ViewFrom = z.enum(['front', 'front-left', 'front-right', 'left', 'right', 'above', 'eye']);
+export const ViewFrame = z.object({
+  nodes: z.array(Id).default([]),
+  from: ViewFrom.default('front-left'),
+  azimuth: z.number().optional(),
+  elevation: z.number().min(-30).max(90).optional(),
+  distance: z.int().positive().optional(),
+});
+
+export const LightingPreset = z.enum(['auto', 'day', 'evening', 'night', 'studio']);
+
+/** A view's fields (the op entity extends them; zod 4 can't extend a refined object). */
+export const ViewFields = z.object({
+  id: Id,
+  name: z.string().min(1),
+  camera: ViewCamera.optional(),
+  frame: ViewFrame.optional(),
+  mode: z.enum(['orbit', 'walk']).optional(),
+  /** Motion ids, or node ids whose motions open. */
+  open: z.array(Id).optional(),
+  hide: z.array(Id).optional(),
+  caption: z.string().max(400).optional(),
+  lighting: LightingPreset.optional(),
+});
+
+/** A stop on the presentation tour: a camera or a frame (never both), what's open or hidden, a caption. */
+export const View = ViewFields.refine((v) => !!v.camera !== !!v.frame, 'a view has a camera or a frame, not both');
+
+export const Lighting = z.object({
+  preset: LightingPreset.default('auto'),
+  sun: z.object({ azimuth: z.number(), elevation: z.number().min(0).max(90) }).optional(),
+  exposure: z.number().min(-3).max(3).optional(),
+  underCabinet: z.boolean().optional(),
+});
+
+/** Presentation mode's saved state: the views tour, lighting, and the walk-mode eye height. */
+export const Presentation = z.object({ views: z.array(View).default([]), lighting: Lighting.optional(), eyeHeight: z.int().positive().optional() });
+
 export const Doc = z.object({
   version: z.literal(SCHEMA_VERSION),
   /** Plugin versions at save time; drives per-plugin param migrations on load. */
@@ -204,6 +268,7 @@ export const Doc = z.object({
   motions: z.record(z.string(), Motion),
   /** Top-level node ids, in order. */
   roots: z.array(Id),
+  presentation: Presentation.optional(),
 });
 
 export type Vec3 = z.infer<typeof Vec3>;
@@ -225,6 +290,14 @@ export type Annotation = z.infer<typeof Annotation>;
 export type Variable = z.infer<typeof Variable>;
 export type Motion = z.infer<typeof Motion>;
 export type Bindings = z.infer<typeof Bindings>;
+export type Finish = z.infer<typeof Finish>;
+export type ViewCamera = z.infer<typeof ViewCamera>;
+export type ViewFrame = z.infer<typeof ViewFrame>;
+export type ViewFrom = z.infer<typeof ViewFrom>;
+export type LightingPreset = z.infer<typeof LightingPreset>;
+export type View = z.infer<typeof View>;
+export type Lighting = z.infer<typeof Lighting>;
+export type Presentation = z.infer<typeof Presentation>;
 export type Doc = z.infer<typeof Doc>;
 
 export function identity(): Transform {

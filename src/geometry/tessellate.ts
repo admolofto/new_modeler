@@ -102,6 +102,31 @@ function reinsertDropped(tris: number[], loops: number[][]): void {
   }
 }
 
+/**
+ * A hole's bridge can run along collinear loop points (a grid line through a channeled wall's
+ * window): a triangle edge then passes over a loop vertex, a T-junction. Split every such edge at
+ * the vertex, in every triangle that has it, so shared edges match their neighbours'.
+ */
+function splitThrough(tris: number[], loops: number[][], flat: number[]): void {
+  const x = (i: number) => flat[i * 2]!;
+  const y = (i: number) => flat[i * 2 + 1]!;
+  for (const p of loops.flat()) {
+    for (let t = 0; t < tris.length; t += 3) {
+      const tri = [tris[t]!, tris[t + 1]!, tris[t + 2]!];
+      if (tri.includes(p)) continue;
+      const e = [0, 1, 2].find((k) => {
+        const [a, b] = [tri[k]!, tri[(k + 1) % 3]!];
+        const cross = (x(b) - x(a)) * (y(p) - y(a)) - (y(b) - y(a)) * (x(p) - x(a));
+        return cross === 0 && (x(p) - x(a)) * (x(p) - x(b)) + (y(p) - y(a)) * (y(p) - y(b)) < 0;
+      });
+      if (e === undefined) continue;
+      const [a, b, c] = [tri[e]!, tri[(e + 1) % 3]!, tri[(e + 2) % 3]!];
+      tris.splice(t, 3, a, p, c);
+      tris.push(p, b, c);
+    }
+  }
+}
+
 function addFace(mb: MeshBuilder, face: PlanarFace): void {
   const flat: number[] = [];
   const pos: V3[] = [];
@@ -127,6 +152,7 @@ function addFace(mb: MeshBuilder, face: PlanarFace): void {
   }
   const tris = earcut(flat, holeStarts.length ? holeStarts : null, 2);
   reinsertDropped(tris, loops);
+  if (holeStarts.length) splitThrough(tris, loops, flat);
   const base = mb.positions.length / 3;
   for (const p of pos) mb.vertex(p, face.normal);
   const tag = mb.tag(face.tag);

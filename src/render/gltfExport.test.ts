@@ -21,8 +21,8 @@ describe('glTF export', () => {
   it('names a clip for each animation, plus one opening everything', () => {
     const { scene, clips } = exportScene(doc);
     expect(clips.map((c) => c.name)).toEqual(['Open — Drawer 1', 'Open — Left door', 'Open — Right door', 'Open — Lid', 'Open all']);
-    // Drawer 1 moves its six parts, a position and a turn track each.
-    expect(clips[0]!.tracks).toHaveLength(12);
+    // Drawer 1 moves its folder (all six parts and anything put in it): a position and a turn track.
+    expect(clips[0]!.tracks).toHaveLength(2);
     expect(clips[0]!.duration).toBeCloseTo(0.6);
     // Open all waits a beat for each next one.
     expect(clips.at(-1)!.duration).toBeGreaterThan(0.8);

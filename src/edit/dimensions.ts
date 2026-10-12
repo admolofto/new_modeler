@@ -1,4 +1,5 @@
 import type { V3 } from '../geometry/types';
+import { isDecor, surroundingsOf } from '../model/decor';
 import { descendants } from '../model/doc';
 import type { Doc } from '../model/schema';
 import { hiddenNodes } from '../model/visibility';
@@ -160,13 +161,18 @@ export function footprintDimensions(boxes: Box3[]): DimLine[] {
   return lines.filter((l) => l.value > 0);
 }
 
-/** The parts to dimension, as world boxes: the selected parts and assemblies' parts, else every part. Hidden ones are left out. */
+/**
+ * The parts to dimension, as world boxes: the selected parts and assemblies' parts, else the whole
+ * model's shop parts and blocks (not decor or the room). Hidden ones are left out.
+ */
 function dimensionParts(doc: Doc, selected: readonly Target[], boxes = worldBoxes(doc)): Box3[] {
   const hidden = hiddenNodes(doc);
   const parts = selected.flatMap((t) => doc.parts[t.node] ? [t.node] : descendants(doc, t.node));
   const picked = [...new Set(parts)].filter((id) => doc.parts[id] && !hidden.has(id)).map((id) => boxes.get(id)).filter((b): b is Box3 => !!b);
   if (picked.length) return picked;
-  return Object.keys(doc.parts).filter((id) => !hidden.has(id)).map((id) => boxes.get(id)).filter((b): b is Box3 => !!b);
+  const room = surroundingsOf(doc);
+  const model = Object.values(doc.parts).filter((p) => !isDecor(p) && !room.has(p.id) && !hidden.has(p.id));
+  return model.map((p) => boxes.get(p.id)).filter((b): b is Box3 => !!b);
 }
 
 /** What to dimension: the selected parts / assemblies together, else the whole model's envelope. */

@@ -20,12 +20,22 @@ export interface Viewport {
   unitsPerPx(p: THREE.Vector3): number;
   /** Runs before every frame is drawn (e.g. to keep a gizmo the same size on screen). */
   onFrame(fn: () => void): void;
+  /**
+   * Hands the frame to someone else (presentation mode): while set, frame hooks still run first (the
+   * motion player animates from one), then `fn(dt)` (seconds since the last frame) runs instead of the
+   * editor's controls, grid and render. The editor's scene, camera and controls are left as they were.
+   */
+  setFrame(fn: ((dt: number) => void) | null): void;
+  /** Runs after the view is resized (CSS pixels); returns an unsubscribe. */
+  onResize(fn: (width: number, height: number) => void): () => void;
   dispose(): void;
 }
 
 export function createViewport(container: HTMLElement): Viewport {
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(window.devicePixelRatio);
+  // For presentation mode. A no-op for the editor: its lights never cast shadows.
+  renderer.shadowMap.enabled = true;
   container.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
@@ -53,18 +63,29 @@ export function createViewport(container: HTMLElement): Viewport {
   const grid = createGrid();
   scene.add(grid.mesh);
 
+  const resizeFns = new Set<(width: number, height: number) => void>();
   const resize = () => {
     const { clientWidth: w, clientHeight: h } = container;
     renderer.setSize(w, h);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
+    for (const fn of resizeFns) fn(w, h);
   };
   const observer = new ResizeObserver(resize);
   observer.observe(container);
   resize();
 
   const frameHooks: (() => void)[] = [];
-  renderer.setAnimationLoop(() => {
+  let frame: ((dt: number) => void) | null = null;
+  let last: number | null = null;
+  renderer.setAnimationLoop((time) => {
+    const dt = last === null ? 0 : Math.min(0.1, Math.max(0, (time - last) / 1000));
+    last = time;
+    if (frame) {
+      for (const fn of frameHooks) fn();
+      frame(dt);
+      return;
+    }
     controls.update();
     grid.update(camera, controls.target);
     for (const fn of frameHooks) fn();
@@ -92,6 +113,13 @@ export function createViewport(container: HTMLElement): Viewport {
     },
     onFrame(fn) {
       frameHooks.push(fn);
+    },
+    setFrame(fn) {
+      frame = fn;
+    },
+    onResize(fn) {
+      resizeFns.add(fn);
+      return () => void resizeFns.delete(fn);
     },
     dispose() {
       renderer.setAnimationLoop(null);

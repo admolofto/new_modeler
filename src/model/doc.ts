@@ -2,7 +2,7 @@ import type { Doc, Part } from './schema';
 
 export class ModelError extends Error {}
 
-export type EntityKind = 'part' | 'assembly' | 'joint' | 'material' | 'annotation' | 'variable' | 'motion';
+export type EntityKind = 'part' | 'assembly' | 'joint' | 'material' | 'annotation' | 'variable' | 'motion' | 'view';
 
 export function entityKind(d: Doc, id: string): EntityKind | null {
   if (id in d.parts) return 'part';
@@ -12,6 +12,8 @@ export function entityKind(d: Doc, id: string): EntityKind | null {
   if (id in d.annotations) return 'annotation';
   if (id in d.variables) return 'variable';
   if (id in d.motions) return 'motion';
+  // Presentation views share the id space (ids are globally unique).
+  if (d.presentation?.views.some((v) => v.id === id)) return 'view';
   return null;
 }
 

@@ -1,8 +1,11 @@
 import type { PlanarFace, V2, V3 } from '../geometry/types';
+import { isShopPart } from '../model/decor';
+import { generatedOwner } from '../model/generate';
 import { defaultJointDepth, jointContact } from '../model/joinery';
 import type { Op } from '../model/ops';
 import type { Doc, Part } from '../model/schema';
 import { formatInches, inches } from '../model/units';
+import { generators } from '../plugins';
 import type { EdgeProfileParams } from '../plugins/features/edgeProfile';
 import { BOX_FACES, boxCornerEdge, type BoxParams } from '../plugins/shapes/box';
 import type { OutlineParams } from '../plugins/shapes/outline';
@@ -115,16 +118,33 @@ function jointActions(doc: Doc, a: Part, b: Part): Action[] {
   return [join('dado', defaultJointDepth('dado', pick.thick)), join('rabbet', defaultJointDepth('rabbet', pick.thick))];
 }
 
+/**
+ * One-click changes the generator that made this node offers where it was clicked ("Add window
+ * here"), each a params update on the generator's assembly.
+ */
+function generatorActions(doc: Doc, t: Target): Action[] {
+  const node = doc.parts[t.node] ?? doc.assemblies[t.node];
+  const asm = node && generatedOwner(doc, t.node);
+  if (!asm || !generators.has(asm.generator!.type)) return [];
+  const def = generators.get(asm.generator!.type);
+  const offered = def.actions?.(asm.generator!.params, { role: node.role!, ...(t.handle && { handle: t.handle }), ...(t.at && { at: t.at }) }) ?? [];
+  return offered.map((a, i): Action => ({ id: `gen-${i}`, label: a.label, fields: [], run: () => [{ op: 'update', id: asm.id, patch: { params: a.params as Record<string, unknown> } }] }));
+}
+
 /** `fmt` formats lengths in labels (the UI passes its display units). */
 export function actionsFor(doc: Doc, targets: Target[], fmt: (u: number) => string = formatInches): Action[] {
   if (!targets.length) return [];
+  return [...(targets.length === 1 ? generatorActions(doc, targets[0]!) : []), ...selectionActions(doc, targets, fmt)];
+}
+
+function selectionActions(doc: Doc, targets: Target[], fmt: (u: number) => string): Action[] {
   const actions: Action[] = [];
   const parts = targets.map((t) => doc.parts[t.node]);
 
   // Whole parts.
   if (targets.every((t, i) => !t.handle && parts[i])) {
     const n = targets.length;
-    if (n === 2 && !parts[0]!.block && !parts[1]!.block) actions.push(...jointActions(doc, parts[0]!, parts[1]!));
+    if (n === 2 && isShopPart(parts[0]!) && isShopPart(parts[1]!)) actions.push(...jointActions(doc, parts[0]!, parts[1]!));
     actions.push({ id: 'delete', label: n === 1 ? 'Delete part' : `Delete ${n} parts`, fields: [], run: () => targets.map((t): Op => ({ op: 'delete', id: t.node })) });
     const bound = parts.filter((p): p is Part => !!p?.bind);
     if (bound.length) {
@@ -140,8 +160,8 @@ export function actionsFor(doc: Doc, targets: Target[], fmt: (u: number) => stri
 
   // Edges on one part: route a profile along them.
   const part = parts[0];
-  // Blocks are placeholders: nothing to machine on them.
-  if (part?.block) return actions;
+  // Blocks are placeholders and decor is bought: nothing to machine on them.
+  if (part && !isShopPart(part)) return actions;
   const sameIds = targets.every((t) => t.node === targets[0]!.node);
   if (part && sameIds && targets.every((t) => t.handle?.startsWith('edge:'))) {
     const edges = targets.map((t) => t.handle!);

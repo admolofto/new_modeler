@@ -25,6 +25,8 @@ export const MIGRATIONS: Record<number, Migration> = {
   // v7: generated folders (`assembly.role`: a carcass's drawers each get a "Drawer N" folder).
   // Loading regenerates older generated assemblies to group their parts (persistence.ts `upgradeDoc`).
   6: (doc) => doc,
+  // v8: finishes, slab stock, presentation; nothing stored changes shape.
+  7: (doc) => doc,
 };
 
 /** Runs doc-level migrations up to `target`. Input is untrusted JSON. */

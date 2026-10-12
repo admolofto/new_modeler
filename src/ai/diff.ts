@@ -1,6 +1,8 @@
+import { decorInfo, isDecor } from '../model/decor';
 import { deepEqual, movingParts, parentIndex } from '../model/doc';
+import { finishText, swatchOf } from '../model/finishes';
 import { motionName, motionSummary } from '../model/motion';
-import type { Bindings, Doc, Joint, JointCut, Motion, Part, Variable } from '../model/schema';
+import type { Bindings, Doc, Finish, Joint, JointCut, Lighting, Motion, Part, Variable, View } from '../model/schema';
 import { formatInches } from '../model/units';
 
 /**
@@ -14,8 +16,8 @@ export interface DocDiff {
   touched: Set<string>;
 }
 
-const COUNTS = new Set(['shelves', 'doors']);
-const ANGLES = new Set(['doorAngle']);
+const COUNTS = new Set(['shelves', 'doors', 'grid']);
+const ANGLES = new Set(['doorAngle', 'angle']);
 
 function fmt(key: string, v: unknown): string {
   if (typeof v === 'number' && ANGLES.has(key)) return `${v}°`;
@@ -35,6 +37,15 @@ const numbers = (v: unknown) => Array.isArray(v) && v.every((x) => typeof x === 
  */
 function leafChanges(path: string, key: string, a: unknown, b: unknown, out: string[]): void {
   if (deepEqual(a, b)) return;
+  // Lists of things with ids (a room's openings): matched by id, so adding one isn't the whole list again.
+  const byId = (v: unknown) => (Array.isArray(v) && v.every((x) => isObj(x) && typeof x.id === 'string') ? new Map(v.map((x) => [x.id as string, x])) : null);
+  const [ia, ib] = [byId(a), byId(b)];
+  if (ia && ib && (ia.size !== ib.size || [...ia.keys()].some((id) => !ib.has(id)))) {
+    for (const [id, x] of ib) if (!ia.has(id)) out.push(`+ ${itemText(id, x)}`);
+    for (const [id, x] of ia) if (!ib.has(id)) out.push(`− ${itemText(id, x)}`);
+    for (const [id, x] of ib) if (ia.has(id)) leafChanges(`${path}[${id}]`, id, ia.get(id), x, out);
+    return;
+  }
   const sameShape = isObj(a) && isObj(b) && Array.isArray(a) === Array.isArray(b) && !numbers(a) && !numbers(b);
   if (sameShape && (!Array.isArray(a) || a.length === (b as unknown as unknown[]).length)) {
     for (const k of [...new Set([...Object.keys(a), ...Object.keys(b)])]) {
@@ -45,6 +56,13 @@ function leafChanges(path: string, key: string, a: unknown, b: unknown, out: str
     return;
   }
   out.push(`${path} ${fmt(key, a)} → ${fmt(key, b)}`);
+}
+
+/** An item of an id'd list: `window w1 (back wall, 36" × 48")` for a room opening, else its id. */
+function itemText(id: string, x: unknown): string {
+  const o = x as Record<string, unknown>;
+  const size = typeof o.width === 'number' && typeof o.height === 'number' ? `, ${formatInches(o.width)} × ${formatInches(o.height)}` : '';
+  return typeof o.kind === 'string' ? `${o.kind} ${id}${typeof o.wall === 'string' ? ` (${o.wall} wall${size})` : ''}` : id;
 }
 
 function paramChanges(a: Record<string, unknown>, b: Record<string, unknown>, max = 4): string[] {
@@ -58,6 +76,12 @@ function changedKeys(a: Record<string, unknown>, b: Record<string, unknown>): st
 }
 
 const fmtVar = (v: Variable) => (v.unit === 'length' ? formatInches(v.value) : String(v.value));
+
+/** `finish → paint #1f2a44`, `finish cleared`; nothing when it didn't change. */
+const finishChange = (a: Finish | undefined, b: Finish | undefined): string[] => (deepEqual(a, b) ? [] : [b ? `finish → ${finishText(b)}` : 'finish cleared']);
+
+/** `Bar stool 1 (bar stool)`, `Base (block)`, `Left side`. */
+const partLabel = (p: Part) => `${p.name}${p.block ? ' (block)' : isDecor(p) ? ` (${decorInfo(p.shape.type)!.label.toLowerCase()})` : ''}`;
 
 /** "linked shape.x, position.x" / "unlinked shape.y" for changed bindings. */
 function bindChanges(a: Bindings | undefined, b: Bindings | undefined): string[] {
@@ -73,6 +97,7 @@ function partChanges(a: Part, b: Part, docB: Doc): string[] {
   if (!!a.hidden !== !!b.hidden) out.push(b.hidden ? 'hidden in viewport' : 'shown in viewport');
   if (!!a.unclickable !== !!b.unclickable) out.push(b.unclickable ? 'made unclickable' : 'made clickable');
   if (a.material !== b.material) out.push(`material → ${b.material === undefined ? 'none' : (docB.materials[b.material]?.name ?? b.material)}`);
+  out.push(...finishChange(a.finish, b.finish));
   if (a.grain !== b.grain) out.push(`grain → ${b.grain}`);
   if (!deepEqual(a.transform.position, b.transform.position)) out.push(`moved to ${fmt('position', b.transform.position)}`);
   if (!deepEqual(a.transform.rotation, b.transform.rotation)) out.push(`rotated ${b.transform.rotation.join('°, ')}°`);
@@ -111,7 +136,11 @@ export function diffDocs(a: Doc, b: Doc): DocDiff {
   for (const [id, m] of Object.entries(b.materials)) {
     const old = a.materials[id];
     if (!old) lines.push(`+ material ${m.name} (${formatInches(m.thickness)})`);
-    else if (!deepEqual(old, m)) lines.push(`~ material ${m.name}: ${changedKeys(old, m).join(', ')}`);
+    else if (!deepEqual(old, m)) {
+      // A new finish brings its swatch as the material's color (ops): that isn't a change of its own.
+      const keys = changedKeys(old, m).filter((k) => k !== 'finish' && !(k === 'color' && m.finish && !deepEqual(old.finish, m.finish) && m.color === swatchOf(m.finish)));
+      lines.push(`~ material ${m.name}: ${[...(keys.length ? [keys.join(', ')] : []), ...finishChange(old.finish, m.finish)].join('; ')}`);
+    }
   }
   for (const [id, m] of Object.entries(a.materials)) if (!b.materials[id]) lines.push(`− material ${m.name}`);
 
@@ -148,6 +177,7 @@ export function diffDocs(a: Doc, b: Doc): DocDiff {
     if (old.name !== asm.name) bits.push(`renamed "${asm.name}"`);
     if (!!old.hidden !== !!asm.hidden) bits.push(asm.hidden ? 'hidden in viewport' : 'shown in viewport');
     if (!!old.unclickable !== !!asm.unclickable) bits.push(asm.unclickable ? 'made unclickable' : 'made clickable');
+    bits.push(...finishChange(old.finish, asm.finish));
     if (!deepEqual(old.transform, asm.transform)) bits.push(`moved to ${fmt('position', asm.transform.position)}`);
     if (regenerated.has(id)) {
       bits.push(...paramChanges(old.generator!.params, asm.generator!.params, 6));
@@ -170,7 +200,7 @@ export function diffDocs(a: Doc, b: Doc): DocDiff {
     const old = a.parts[id];
     if (!old) {
       touched.add(id);
-      if (!quiet(id)) lines.push(`+ ${part.name}${part.block ? ' (block)' : ''}`);
+      if (!quiet(id)) lines.push(`+ ${partLabel(part)}`);
     } else if (!deepEqual(old, part)) {
       touched.add(id);
       if (!quiet(id)) lines.push(`~ ${part.name}: ${partChanges(old, part, b).join('; ') || 'changed'}`);
@@ -184,7 +214,7 @@ export function diffDocs(a: Doc, b: Doc): DocDiff {
     }
     return p !== undefined && (!b.assemblies[p] || regenerated.has(p));
   };
-  for (const [id, part] of Object.entries(a.parts)) if (!b.parts[id] && !removedParent(id)) lines.push(`− ${part.name}${part.block ? ' (block)' : ''}`);
+  for (const [id, part] of Object.entries(a.parts)) if (!b.parts[id] && !removedParent(id)) lines.push(`− ${partLabel(part)}`);
 
   const oldParents = parentIndex(a);
   for (const [id, parent] of parentIndex(b)) {
@@ -223,5 +253,58 @@ export function diffDocs(a: Doc, b: Doc): DocDiff {
     else if (!deepEqual(old, n)) lines.push(`~ note ${quote(n.note)}`);
   }
   for (const [id, n] of Object.entries(a.annotations)) if (!b.annotations[id]) lines.push(`− note ${quote(n.note)}`);
+  lines.push(...viewChanges(a, b));
+  lines.push(...lightingChanges(a.presentation?.lighting, b.presentation?.lighting));
+  const [eyeA, eyeB] = [a.presentation?.eyeHeight, b.presentation?.eyeHeight];
+  if (eyeA !== eyeB) lines.push(eyeB === undefined ? '~ eye height reset' : `~ eye height → ${formatInches(eyeB)}`);
   return { lines, touched };
+}
+
+/** `~ lighting → evening`, `~ lighting: brightness +0.5 EV, under-cabinet lights on`, `~ lighting reset`. */
+export function lightingChanges(a: Lighting | undefined, b: Lighting | undefined): string[] {
+  if (deepEqual(a, b)) return [];
+  if (!b) return ['~ lighting reset'];
+  const out: string[] = [];
+  if ((a?.preset ?? 'auto') !== b.preset) out.push(b.preset);
+  if (!deepEqual(a?.sun, b.sun)) out.push(b.sun ? `sun ${b.sun.azimuth}° / ${b.sun.elevation}° up` : 'sun automatic');
+  if ((a?.exposure ?? 0) !== (b.exposure ?? 0)) out.push(`brightness ${(b.exposure ?? 0) > 0 ? '+' : ''}${b.exposure ?? 0} EV`);
+  if (a?.underCabinet !== b.underCabinet) out.push(`under-cabinet lights ${b.underCabinet === undefined ? 'automatic' : b.underCabinet ? 'on' : 'off'}`);
+  if (!out.length) return [];
+  return [(a?.preset ?? 'auto') !== b.preset ? `~ lighting → ${out.join(', ')}` : `~ lighting: ${out.join(', ')}`];
+}
+
+/** `+ view "Island"`, `~ view "Island": camera moved; opens Drawer 1`, `− view "Sink"`, `~ views reordered: …`. */
+export function viewChanges(a: Doc, b: Doc): string[] {
+  const [va, vb] = [a.presentation?.views ?? [], b.presentation?.views ?? []];
+  const old = new Map(va.map((v) => [v.id, v]));
+  const now = new Set(vb.map((v) => v.id));
+  const named = (d: Doc, id: string) => {
+    const m = d.motions[id];
+    return m ? motionName(d, m) : ((d.parts[id] ?? d.assemblies[id])?.name ?? id);
+  };
+  const list = (d: Doc, ids: string[] | undefined) => (ids?.length ? ids.map((id) => named(d, id)).join(', ') : 'nothing');
+  const out: string[] = [];
+  for (const v of vb) {
+    const o = old.get(v.id);
+    if (!o) {
+      out.push(`+ view "${v.name}"`);
+      continue;
+    }
+    if (deepEqual(o, v)) continue;
+    const bits: string[] = [];
+    if (o.name !== v.name) bits.push(`renamed (was "${o.name}")`);
+    if (v.camera && !deepEqual(o.camera, v.camera)) bits.push('camera moved');
+    if (v.frame && !deepEqual(o.frame, v.frame)) bits.push(`frames ${v.frame.nodes.length ? list(b, v.frame.nodes) : 'the whole model'} from ${v.frame.azimuth !== undefined || v.frame.elevation !== undefined ? 'its own angle' : v.frame.from}`);
+    if (o.mode !== v.mode) bits.push(v.mode ? `${v.mode} mode` : 'mode as it is');
+    if (!deepEqual(o.open, v.open)) bits.push(`opens ${list(b, v.open)}`);
+    if (!deepEqual(o.hide, v.hide)) bits.push(`hides ${list(b, v.hide)}`);
+    if (o.caption !== v.caption) bits.push(v.caption ? `caption ${JSON.stringify(v.caption.length > 48 ? `${v.caption.slice(0, 47)}…` : v.caption)}` : 'caption cleared');
+    if (o.lighting !== v.lighting) bits.push(v.lighting ? `lighting → ${v.lighting}` : 'lighting as saved');
+    out.push(`~ view "${v.name}": ${bits.join('; ') || 'changed'}`);
+  }
+  for (const v of va) if (!now.has(v.id)) out.push(`− view "${v.name}"`);
+  const kept = (vs: View[], other: Set<string>) => vs.filter((v) => other.has(v.id)).map((v) => v.id);
+  const order = kept(vb, new Set(old.keys()));
+  if (order.join() !== kept(va, now).join()) out.push(`~ views reordered: ${vb.map((v) => `"${v.name}"`).join(', ')}`);
+  return out;
 }

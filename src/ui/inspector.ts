@@ -1,24 +1,32 @@
 import { actionsFor, type Action } from '../edit/actions';
+import { getPath, setPath } from '../edit/params';
 import { blockSize, setRotationOps, splitEvenOps } from '../edit/blocks';
 import { handleDrives, setDriveOps, type Drive } from '../edit/drives';
 import { handleKind, targetKey, type Target } from '../edit/targets';
 import { clashesOf, clashText } from '../model/clearance';
 import { partMachining } from '../model/cutlist';
+import { decorInfo, isDecor, isShopPart } from '../model/decor';
 import { DEFAULT_CARCASS } from '../model/defaults';
-import { descendants, parentIndex } from '../model/doc';
+import { deepEqual, descendants, parentIndex } from '../model/doc';
+import { finishOf } from '../model/finishes';
 import { generatedOwner, genPartId } from '../model/generate';
+import { alongWall, atAlongWall, placeOpening, refitRoomOps, roomParams } from '../model/room';
 import { motionBasis, motionIndex, motionName, motionOf, motionSummary } from '../model/motion';
 import type { Op } from '../model/ops';
-import type { Assembly, Doc, Grain, Motion, Part } from '../model/schema';
+import type { Assembly, Doc, Finish, Grain, Motion, Part } from '../model/schema';
 import type { Store } from '../model/store';
 import { variablesOf } from '../model/variables';
 import { boxSize, localBox } from '../model/world';
-import { motions } from '../plugins';
-import type { CarcassParams } from '../plugins/generators/carcass';
+import { generators, motions, type DecorInfo, type ParamField } from '../plugins';
+import type { CarcassParams, CarcassPulls } from '../plugins/generators/carcass';
+import { ROOM_FINISHES, ROOM_SIDES, BASEBOARD, CAN_DIAMETER, insideSpan, type OpeningKind, type RoomFinishes, type RoomOpening, type RoomParams, type RoomSide } from '../plugins/generators/room';
+import { WINDOW_STYLES } from '../plugins/shapes/decor/room';
+import { PULL_DEFAULTS, PULL_FINISH, type PullStyle } from '../plugins/shapes/decor/hardware';
 import { towardOf } from '../plugins/motions/hinge';
 import { SIDES, type Side } from '../plugins/motions/sides';
 import { slideDistance, type SlideParams } from '../plugins/motions/slide';
 import { el } from './dom';
+import { finishLabel, finishPicker } from './finishPicker';
 import { icon } from './icons';
 import { handleLabel, targetLabel } from './labels';
 import type { MotionPlayer } from './motionPlayer';
@@ -28,7 +36,7 @@ import { fmt, LENGTH_HINT, parse, shop, units } from './units';
 
 /**
  * Left panel, bottom: what's selected and what you can change about it — the cabinet it belongs
- * to (its generator's settings), its material, grain, position and rotation, what's machined on it,
+ * to (its generator's settings), its material, finish, grain, position and rotation, what's machined on it,
  * the sizes a selected face / edge / point drives, actions (drill, pocket, round over, join two
  * parts…), how it opens (its animation, with play and an open-amount slider) and a note for the AI.
  * A block gets "What is it?" (its name, which the AI builds from), its size and placement instead.
@@ -77,6 +85,11 @@ const STYLE = `
 .insp .play input[type=range] { flex: 1; min-width: 0; accent-color: var(--fg-2); }
 .insp .play .btn.open { min-width: 76px; }
 .insp .warn { color: var(--warn); }
+.insp .walls { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.insp .walls label { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-sm); }
+.insp .opening { padding: 6px 0 4px; border-top: 1px solid var(--line); }
+.insp .opening .op-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: var(--fs-sm); font-weight: 600; }
+.insp .room-btns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 `;
 
 export interface InspectorOptions {
@@ -133,6 +146,12 @@ const SIZES: [string, 'x' | 'y' | 'z'][] = [
   ['Depth', 'z'],
 ];
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+/** A choice as words: short codes spelled out (`h` → Horizontal), dashes as spaces (`double-hung` → Double hung). */
+const OPTION_WORDS: Record<string, string> = { h: 'Horizontal', v: 'Vertical', l: 'Left', r: 'Right' };
+const optionLabel = (o: string) => OPTION_WORDS[o] ?? cap(o.replace(/-/g, ' '));
+
+/** Pull styles a cabinet offers (a lever is a room door's). */
+const CABINET_PULLS: PullStyle[] = ['bar', 'arch', 'cup', 'edge', 'knob', 'tab'];
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /** Every part under an assembly, if these whole parts are exactly that (e.g. a cabinet picked from the list). */
@@ -149,6 +168,18 @@ function wholeAssembly(doc: Doc, targets: readonly Target[]): Assembly | null {
   return null;
 }
 
+/** What a node looks like without a finish of its own: the nearest folder's above it, else (a part) its material's. */
+function inheritedFinish(doc: Doc, id: string): Finish | null {
+  const parents = parentIndex(doc);
+  for (let p = parents.get(id); p; p = parents.get(p)) {
+    const f = doc.assemblies[p]?.finish;
+    if (f) return f;
+  }
+  const part = doc.parts[id];
+  const m = part?.material ? doc.materials[part.material] : undefined;
+  return m ? finishOf(m) : null;
+}
+
 /** The cabinet whose settings apply to these whole parts: the one they all belong to. */
 function cabinetOf(doc: Doc, targets: readonly Target[], whole: Assembly | null): Assembly | null {
   if (whole?.generator?.type === 'carcass') return whole;
@@ -157,6 +188,30 @@ function cabinetOf(doc: Doc, targets: readonly Target[], whole: Assembly | null)
   const owners = new Set(targets.map((t) => generatedOwner(doc, t.node)?.id ?? null));
   const [only] = owners;
   return owners.size === 1 && only && doc.assemblies[only]!.generator!.type === 'carcass' ? doc.assemblies[only]! : null;
+}
+
+/** The room these targets belong to: the room itself, or its parts, faces and folders. */
+function roomFor(doc: Doc, targets: readonly Target[], whole: Assembly | null): Assembly | null {
+  const isRoom = (a: Assembly | null | undefined) => (a?.generator?.type === 'room' ? a : null);
+  if (isRoom(whole)) return whole;
+  const owners = new Set(targets.map((t) => isRoom(doc.assemblies[t.node])?.id ?? generatedOwner(doc, t.node)?.id ?? null));
+  const [only] = owners;
+  return owners.size === 1 && only ? isRoom(doc.assemblies[only]) : null;
+}
+
+/**
+ * The appliance (or other generator with its own form) these targets belong to: it, or its parts and
+ * folders. The carcass and the room have sections of their own.
+ */
+function formGeneratorFor(doc: Doc, targets: readonly Target[], whole: Assembly | null): Assembly | null {
+  const ofForm = (a: Assembly | null | undefined) => {
+    const type = a?.generator?.type;
+    return type && type !== 'room' && type !== 'carcass' && generators.has(type) && generators.get(type).fields?.length ? a! : null;
+  };
+  if (ofForm(whole)) return whole;
+  const owners = new Set(targets.map((t) => ofForm(doc.assemblies[t.node])?.id ?? generatedOwner(doc, t.node)?.id ?? null));
+  const [only] = owners;
+  return owners.size === 1 && only ? ofForm(doc.assemblies[only]) : null;
 }
 
 export function mountInspector(o: InspectorOptions): { focusNote(): void } {
@@ -300,7 +355,7 @@ export function mountInspector(o: InspectorOptions): { focusNote(): void } {
     const part = doc.parts[t.node];
     if (whole) {
       title = whole.name;
-      sub = `${whole.generator?.type === 'carcass' ? 'Cabinet' : 'Assembly'} · ${plural(targets.length, 'part')}`;
+      sub = `${whole.generator?.type === 'carcass' ? 'Cabinet' : whole.generator?.type === 'room' ? 'Room' : 'Assembly'} · ${plural(targets.length, 'part')}`;
     } else if (targets.length > 1) {
       const kinds = new Set(targets.map((x) => (x.handle ? handleKind(x.handle) : 'part')));
       const kind = kinds.size === 1 ? [...kinds][0]! : 'item';
@@ -310,7 +365,7 @@ export function mountInspector(o: InspectorOptions): { focusNote(): void } {
       sub = part?.name ?? '';
     } else if (part) {
       title = part.name;
-      const mat = part.block ? 'Block' : part.material ? (doc.materials[part.material]?.name ?? part.material) : 'No material';
+      const mat = part.block ? 'Block' : isDecor(part) ? decorInfo(part.shape.type)!.label : part.material ? (doc.materials[part.material]?.name ?? part.material) : 'No material';
       let size = '';
       try {
         size = ` · ${boxSize(localBox(doc, part.id)).map(fmt).join(' × ')}`;
@@ -320,6 +375,11 @@ export function mountInspector(o: InspectorOptions): { focusNote(): void } {
       sub = `${mat}${size}`;
     } else {
       title = targetLabel(doc, t);
+      const asm = doc.assemblies[t.node];
+      if (asm?.generator?.type === 'room') {
+        const p = roomParams(asm);
+        sub = `Room · ${fmt(p.right - p.left)} × ${fmt(p.front - p.back)} inside, ${fmt(p.height)} high`;
+      }
     }
     const del = el('button', { class: 'btn ghost icon', title: `${removeLabel} (Del)` }, icon('trash'));
     del.hidden = !remove;
@@ -363,7 +423,7 @@ export function mountInspector(o: InspectorOptions): { focusNote(): void } {
     const removed: string[] = [];
     for (const [role, ov] of Object.entries(asm.generator!.overrides)) {
       if (ov.deleted) removed.push(role.replace(/-/g, ' '));
-      else edited.push(doc.parts[genPartId(asm.id, role)]?.name ?? role);
+      else edited.push((doc.parts[genPartId(asm.id, role)] ?? doc.assemblies[genPartId(asm.id, role)])?.name ?? role);
     }
     const foot = [edited.length ? `Changed by hand, kept when the cabinet changes: ${edited.join(', ')}.` : '', removed.length ? `Removed: ${removed.join(', ')}.` : '']
       .filter(Boolean)
@@ -393,9 +453,235 @@ export function mountInspector(o: InspectorOptions): { focusNote(): void } {
         ? [row('Hinge side', selectField(k('doorHinge'), [['left', 'Left'], ['right', 'Right']], p.doorHinge ?? 'left', (v) => set({ doorHinge: v as 'left' | 'right' })))]
         : []),
       ...(p.doors ? [row('Door swing', angleField(p.doorAngle ?? 105, (d) => d > 0 && d <= 180 && set({ doorAngle: d }, 'doorAngle'), k('doorAngle'), 'How far the doors open'))] : []),
+      ...(p.doors || p.drawers.length ? [...pullRows(p, set, k), frontFinishRow(p, set, k)] : []),
       row('Joinery', selectField(k('joinery'), [['dado', 'Dado'], ['butt', 'Butt']], p.joinery, (v) => set({ joinery: v as CarcassParams['joinery'] }))),
       ...(foot ? [el('div', { class: 'foot' }, foot)] : []),
     );
+  }
+
+  type SetParams = (params: Partial<CarcassParams>, key?: string) => void;
+
+  /** Pulls on every drawer and door: a style (or none), its length and finish, and where they go. */
+  function pullRows(p: CarcassParams, set: SetParams, k: (name: string) => string): HTMLElement[] {
+    const pulls = p.pulls ?? null;
+    const style = selectField(k('pulls'), [['', 'None'], ...CABINET_PULLS.map((s): [string, string] => [s, cap(s)])], pulls?.style ?? '', (v) =>
+      set({ pulls: v ? { ...(pulls ?? {}), style: v as PullStyle } : null }),
+    );
+    if (!pulls) return [row('Pulls', style)];
+    const put = (next: CarcassPulls, key?: string) => set({ pulls: next }, key);
+    const { finish: _, ...plain } = pulls;
+    const length = PULL_DEFAULTS[pulls.style][0];
+    return [
+      row('Pulls', style),
+      ...(pulls.style === 'knob'
+        ? []
+        : [row('Pull length', lengthField(pulls.length ?? null, (u) => u > 0 && put({ ...pulls, length: u }, 'pullLength'), k('pullLength'), fmt(length)))]),
+      row(
+        'Pull finish',
+        finishPicker({
+          value: pulls.finish,
+          auto: `Auto (${finishLabel(PULL_FINISH)})`,
+          key: k('pullFinish'),
+          onChange: (f, dragging) => put(f ? { ...plain, finish: f } : plain, dragging ? 'pullFinish' : undefined),
+        }),
+      ),
+      ...(p.doors
+        ? [row('Door pulls', selectField(k('doorAt'), [['auto', 'Auto'], ['top', 'Near the top'], ['middle', 'Middle'], ['bottom', 'Near the bottom']], pulls.doorAt ?? 'auto', (v) => put({ ...pulls, doorAt: v as CarcassPulls['doorAt'] })))]
+        : []),
+      ...(p.drawers.length
+        ? [row('Drawer pulls', selectField(k('drawerAt'), [['center', 'Centered'], ['top', 'Near the top']], pulls.drawerAt ?? 'center', (v) => put({ ...pulls, drawerAt: v as CarcassPulls['drawerAt'] })))]
+        : []),
+    ];
+  }
+
+  /** How the doors and drawer fronts look (two-tone); clearing it leaves them like the rest. */
+  function frontFinishRow(p: CarcassParams, set: SetParams, k: (name: string) => string): HTMLElement {
+    const key = k('frontFinish');
+    return row('Front finish', finishPicker({ value: p.frontFinish ?? undefined, auto: 'Like the cabinet', key, onChange: (f, dragging) => set({ frontFinish: f }, dragging ? 'frontFinish' : undefined) }));
+  }
+
+  // ── Room (the room generator's settings) ──────────────────────────────────
+  /** A generator param from its `fields` entry (height, floor on / off, a finish…). */
+  function genField(asm: Assembly, field: ParamField): HTMLElement | null {
+    const params = asm.generator!.params;
+    const key = `gen:${asm.id}:${field.path}`;
+    const top = field.path.split('.')[0]!;
+    const put = (v: unknown, coalesce?: string) => {
+      const next = structuredClone(params);
+      setPath(next, field.path, v);
+      editOps([{ op: 'update', id: asm.id, patch: { params: { [top]: next[top] } } }], coalesce);
+    };
+    // A room finish cleared goes back to the room's default for it.
+    const reset = field.path.startsWith('finishes.') ? () => structuredClone(ROOM_FINISHES[field.path.slice(9) as keyof RoomFinishes]) : undefined;
+    return fieldInput(params, field, key, put, reset);
+  }
+
+  /** An appliance's settings, from its generator's `fields`. */
+  function generatorFormSection(asm: Assembly): HTMLElement {
+    const params = asm.generator!.params;
+    const rows = (generators.get(asm.generator!.type).fields ?? []).flatMap((f) => {
+      if (f.when && !getPath(params, f.when)) return [];
+      const input = genField(asm, f);
+      return input ? [row(f.label, input)] : [];
+    });
+    return foldable(cap(asm.generator!.type), ...rows);
+  }
+
+  function roomSections(asm: Assembly): HTMLElement[] {
+    const p = roomParams(asm);
+    const k = (name: string) => `gen:${asm.id}:${name}`;
+    const set = (params: Partial<RoomParams>, key?: string) => editOps([{ op: 'update', id: asm.id, patch: { params } }], key && k(key));
+    const [width, depth] = [p.right - p.left, p.front - p.back];
+    const fields = generators.get('room').fields ?? [];
+    const field = (path: string) => {
+      const f = fields.find((x) => x.path === path)!;
+      if (f.when && !getPath(p, f.when)) return [];
+      const input = genField(asm, f);
+      return input ? [row(f.label, input)] : [];
+    };
+
+    const wallBoxes = el(
+      'div',
+      { class: 'walls' },
+      ...ROOM_SIDES.map((side) => {
+        const box = el('input', { type: 'checkbox', checked: p.walls.includes(side), 'data-key': k(`wall-${side}`) });
+        box.addEventListener('change', () => set({ walls: ROOM_SIDES.filter((s) => (s === side ? box.checked : p.walls.includes(s))) }));
+        return el('label', { title: `The ${side} wall` }, box, cap(side));
+      }),
+    );
+    /** Recessed cans: none, or a grid (rows × columns, along the depth × the width). */
+    const canSelect = () => {
+      const grids = ['1x2', '2x2', '2x3', '3x3', '3x4', '4x4'];
+      const cur = p.cans ? `${p.cans.rows}x${p.cans.cols}` : '';
+      const options: [string, string][] = [['', 'None'], ...grids.map((g): [string, string] => [g, g.replace('x', ' × ')])];
+      if (cur && !grids.includes(cur)) options.push([cur, cur.replace('x', ' × ')]);
+      return selectField(k('cans'), options, cur, (v) => {
+        const [rows, cols] = v.split('x').map(Number);
+        set({ cans: v ? { rows: rows!, cols: cols!, diameter: p.cans?.diameter ?? CAN_DIAMETER } : null });
+      });
+    };
+    const base = el('input', { type: 'checkbox', checked: !!p.baseboard, 'data-key': k('baseboard') });
+    base.addEventListener('change', () => set({ baseboard: base.checked ? { ...BASEBOARD } : null }));
+    const fit = el('button', { class: 'btn', title: 'Move the walls to fit the model as it is now (openings stay on their walls)' }, 'Fit to model');
+    fit.addEventListener('click', () => {
+      const { ops, notes } = refitRoomOps(store.doc, asm.id);
+      if (!ops.length) return toast('The room already fits the model.');
+      if (editOps(ops)) toast(notes.length ? notes.join(' ') : 'The room fits the model again.');
+    });
+    const remove = el('button', { class: 'btn ghost', title: 'Take the room away (undo brings it back)' }, icon('trash'), 'Remove room');
+    remove.addEventListener('click', () => editOps([{ op: 'delete', id: asm.id }]) && selection.set([]));
+
+    const room = foldable(
+      'Room',
+      row('Width', lengthField(width, (u) => u > 0 && set({ right: p.left + u }, 'width'), k('width'))),
+      row('Depth', lengthField(depth, (u) => u > 0 && set({ front: p.back + u }, 'depth'), k('depth'))),
+      ...field('height'),
+      ...field('wallThickness'),
+      el(
+        'div',
+        { class: 'stack' },
+        el('span', { class: 'lbl', title: 'Where the inside of the back-left corner is: x of the left wall, z of the back wall' }, 'Back-left corner (x, z)'),
+        el(
+          'div',
+          { class: 'xyz' },
+          lengthField(p.left, (u) => set({ left: u, right: u + width }, 'x'), k('x')),
+          lengthField(p.back, (u) => set({ back: u, front: u + depth }, 'z'), k('z')),
+        ),
+      ),
+      el('div', { class: 'stack' }, el('span', { class: 'lbl' }, 'Walls'), wallBoxes),
+      ...field('floor'),
+      ...field('floorGrain'),
+      ...field('ceiling'),
+      ...(p.ceiling ? [row('Ceiling lights', canSelect())] : []),
+      row('Baseboard', el('label', { class: 'check' }, base)),
+      ...(p.baseboard
+        ? [
+            row('Base height', lengthField(p.baseboard.height, (u) => u > 0 && set({ baseboard: { ...p.baseboard!, height: u } }, 'baseH'), k('baseH'))),
+            row('Base thickness', lengthField(p.baseboard.thickness, (u) => u > 0 && set({ baseboard: { ...p.baseboard!, thickness: u } }, 'baseT'), k('baseT'))),
+          ]
+        : []),
+      el('div', { class: 'room-btns' }, fit, remove),
+      el('div', { class: 'foot' }, 'Drag a wall’s inside face to move it, its top for the height. Click a wall to add a window or door there.'),
+    );
+
+    const add = (kind: OpeningKind) => {
+      const b = el('button', { class: 'btn sm' }, icon('plus'), cap(kind));
+      b.addEventListener('click', () => {
+        const next = placeOpening(roomParams(store.doc.assemblies[asm.id] ?? asm), kind);
+        if (!next) return toast(`No wall has room for a ${kind}.`, true);
+        if (set({ openings: [...p.openings, next] })) toast(`Added ${kind} ${next.id} on the ${next.wall} wall.`);
+      });
+      return b;
+    };
+    const openings = foldable(
+      'Openings',
+      ...(p.openings.length ? p.openings.map((x) => openingRows(p, x, set, k)) : [el('div', { class: 'info' }, 'No windows or doors yet.')]),
+      el('div', { class: 'room-btns' }, add('window'), add('door'), add('opening')),
+    );
+    const finishes = foldable('Room finishes', ...['walls', 'floor', 'ceiling', 'trim', 'doors', 'windows'].flatMap((name) => field(`finishes.${name}`)));
+    return [room, openings, finishes];
+  }
+
+  /** One opening: which wall, where along it, its size, and (a window) its sill and style or (a door) its leaf and swing. */
+  function openingRows(p: RoomParams, x: RoomOpening, set: (params: Partial<RoomParams>, key?: string) => boolean, k: (name: string) => string): HTMLElement {
+    const ko = (name: string) => k(`open:${x.id}:${name}`);
+    const upd = (patch: Partial<RoomOpening>, key?: string) => set({ openings: p.openings.map((o) => (o.id === x.id ? ({ ...o, ...patch } as RoomOpening) : o)) }, key && `open:${x.id}:${key}`);
+    const drop = el('button', { class: 'btn ghost icon sm', title: `Remove ${x.kind} ${x.id}` }, icon('trash'));
+    drop.addEventListener('click', () => set({ openings: p.openings.filter((o) => o.id !== x.id) }));
+    const along = lengthField(alongWall(p, x.wall, x.at), (u) => upd({ at: atAlongWall(p, x.wall, u) }, 'at'), ko('at'));
+    along.title = 'Its center, measured from the left end of the wall as seen from inside the room';
+    const toWall = (v: string) => {
+      const wall = v as RoomSide;
+      const [min, max] = insideSpan(p, wall);
+      const half = Math.floor(x.width / 2);
+      const at = Math.min(Math.max(atAlongWall(p, wall, alongWall(p, x.wall, x.at)), min + half), max - x.width + half);
+      upd({ wall, at });
+    };
+    const rows: HTMLElement[] = [
+      row('Wall', selectField(ko('wall'), ROOM_SIDES.map((s): [string, string] => [s, cap(s)]), x.wall, toWall)),
+      row('Center from left', along),
+      row('Width', lengthField(x.width, (u) => u >= 768 && upd({ width: u }, 'w'), ko('w'))),
+      row('Height', lengthField(x.height, (u) => u >= 768 && upd({ height: u }, 'h'), ko('h'))),
+    ];
+    if (x.kind !== 'door') rows.push(row('Sill', lengthField(x.sill, (u) => u >= 0 && upd({ sill: u }, 'sill'), ko('sill'))));
+    if (x.kind === 'window') rows.push(row('Style', selectField(ko('style'), WINDOW_STYLES.map((s): [string, string] => [s, cap(s.replace('-', ' '))]), x.style, (v) => upd({ style: v as typeof x.style }))));
+    if (x.kind === 'door') {
+      rows.push(
+        row('Leaf', selectField(ko('leaf'), [['panel', 'Panel'], ['slab', 'Slab'], ['glass', 'Glass'], ['none', 'None (cased opening)']], x.leaf, (v) => upd({ leaf: v as typeof x.leaf }))),
+        ...(x.leaf === 'none'
+          ? []
+          : [
+              row('Hinge side', selectField(ko('hinge'), [['left', 'Left (from inside)'], ['right', 'Right (from inside)']], x.hinge, (v) => upd({ hinge: v as typeof x.hinge }))),
+              row('Swings', selectField(ko('swing'), [['in', 'Into the room'], ['out', 'Out of the room']], x.swing, (v) => upd({ swing: v as typeof x.swing }))),
+            ]),
+      );
+    }
+    return el('div', { class: 'opening' }, el('div', { class: 'op-head' }, el('span', {}, `${cap(x.kind)} ${x.id}`), drop), ...rows);
+  }
+
+  // ── Finish (how it looks) ─────────────────────────────────────────────────
+  /** A finish picker for these parts or folders: set one on each, or clear theirs (back to what they inherit). */
+  function finishRow(doc: Doc, ids: string[]): HTMLElement {
+    const nodes = ids.map((id) => doc.parts[id] ?? doc.assemblies[id]!);
+    const first = nodes[0]!.finish;
+    const same = nodes.every((n) => deepEqual(n.finish, first));
+    const inherited = ids.length === 1 ? inheritedFinish(doc, ids[0]!) : null;
+    const key = `finish:${ids.join(',')}`;
+    const picker = finishPicker({
+      value: same ? first : 'mixed',
+      auto: inherited ? `Auto (${finishLabel(inherited)})` : ids.length === 1 && doc.assemblies[ids[0]!] ? 'None' : 'Auto',
+      key,
+      onChange: (f, dragging) => editOps(ids.map((id): Op => ({ op: 'update', id, patch: { finish: f } })), dragging ? key : undefined),
+    });
+    return row('Finish', picker);
+  }
+
+  /** Finish for a whole folder or cabinet, or several whole parts. */
+  function finishSection(doc: Doc, targets: readonly Target[], whole: Assembly | null): HTMLElement | null {
+    const folder = whole ?? (targets.length === 1 && !targets[0]!.handle ? doc.assemblies[targets[0]!.node] : undefined);
+    if (folder) return section('Look', finishRow(doc, [folder.id]), el('div', { class: 'foot' }, 'Every part inside takes this finish unless it has its own.'));
+    if (targets.length < 2 || targets.some((t) => t.handle || !doc.parts[t.node] || !isShopPart(doc.parts[t.node]!))) return null;
+    return section('Look', finishRow(doc, targets.map((t) => t.node)));
   }
 
   // ── Animation (how it opens) ──────────────────────────────────────────────
@@ -458,7 +744,10 @@ export function mountInspector(o: InspectorOptions): { focusNote(): void } {
     const rides = m.nodes.some((id) => nodes.includes(id)) ? [] : [el('div', { class: 'info' }, `Opens with “${motionName(doc, m)}”.`)];
     if (m.role !== undefined) {
       const owner = generatedOwner(doc, m.nodes[0]!);
-      const how = m.type === 'hinge' ? 'change it with Doors, Hinge side and Door swing under Cabinet' : 'it comes out as far as its box goes';
+      const how =
+        owner?.generator?.type === 'room' ? 'change its hinge side and swing under Openings' :
+        m.type === 'hinge' ? 'change it with Doors, Hinge side and Door swing under Cabinet' :
+        'it comes out as far as its box goes';
       const fix = m.type === 'hinge' ? 'Try the other hinge side, a filler, or less Door swing.' : 'Move what’s in the way.';
       return foldable('Animation', ...rides, el('div', { class: 'info len' }, ...shop(`${cap(motionSummary(m))}. It comes with “${owner?.name ?? 'the cabinet'}”: ${how}.`)), ...clearLines(doc, m, fix), playRow(m));
     }
@@ -505,8 +794,8 @@ export function mountInspector(o: InspectorOptions): { focusNote(): void } {
   }
 
   function animationSection(doc: Doc, targets: readonly Target[], whole: Assembly | null): HTMLElement | null {
-    // A whole cabinet: its doors and drawers come with their own (O opens them).
-    if (whole?.generator) return null;
+    // A whole cabinet (or the room): its doors and drawers come with their own (O opens them).
+    if (whole?.generator || targets.some((t) => doc.assemblies[t.node]?.generator)) return null;
     const nodes = animationNodes(doc, targets, whole);
     if (!nodes?.length) return null;
     const found = [...new Set(nodes.map((id) => motionOf(doc, id)))];
@@ -533,6 +822,7 @@ export function mountInspector(o: InspectorOptions): { focusNote(): void } {
         'Part',
         ...info,
         row('Material', selectField(`mat:${part.id}`, materials, part.material ?? '', (v) => editOps([{ op: 'update', id: part.id, patch: { material: v } }]))),
+        finishRow(doc, [part.id]),
         row('Grain', selectField(`grain:${part.id}`, GRAINS, part.grain, (v) => editOps([{ op: 'update', id: part.id, patch: { grain: v } }]))),
         ...placement(part.id, part.transform.position, part.transform.rotation, false),
       ),
@@ -555,6 +845,82 @@ export function mountInspector(o: InspectorOptions): { focusNote(): void } {
       );
     }
     return out;
+  }
+
+  // ── One decor part (a prop, hardware, a room piece) ───────────────────────
+  function decorSections(doc: Doc, part: Part): HTMLElement[] {
+    const info = decorInfo(part.shape.type)!;
+    const owner = generatedOwner(doc, part.id);
+    if (owner?.generator?.type === 'room') return [section(cap(info.label), el('div', { class: 'info' }, `Part of “${owner.name}”: change it under Room and Openings below.`))];
+    if (owner) return [section(cap(info.label), el('div', { class: 'info' }, `Part of “${owner.name}”: change it below.`))];
+    return [
+      section(
+        cap(info.label),
+        el('div', { class: 'info' }, 'Decor: it isn’t cut or joined, and its looks are part of it.'),
+        ...decorFields(part, info),
+        row('Grain', selectField(`grain:${part.id}`, GRAINS, part.grain, (v) => editOps([{ op: 'update', id: part.id, patch: { grain: v } }]))),
+        ...placement(part.id, part.transform.position, part.transform.rotation, true),
+      ),
+    ];
+  }
+
+  /** The decor shape's own form (`DecorInfo.fields`): each field edits one of its params. */
+  function decorFields(part: Part, info: DecorInfo): HTMLElement[] {
+    const params = part.shape.params;
+    return (info.fields ?? []).flatMap((field) => {
+      if (field.when && !getPath(params, field.when)) return [];
+      const input = paramInput(part, field);
+      return input ? [row(field.label, input)] : [];
+    });
+  }
+
+  function paramInput(part: Part, field: ParamField): HTMLElement | null {
+    const params = part.shape.params;
+    const key = `decor:${part.id}:${field.path}`;
+    const top = field.path.split('.')[0]!;
+    const put = (v: unknown, coalesce?: string) => {
+      const next = structuredClone(params);
+      setPath(next, field.path, v);
+      editOps([{ op: 'update', id: part.id, patch: { shape: { params: { [top]: next[top] } } } }], coalesce);
+    };
+    return fieldInput(params, field, key, put);
+  }
+
+  /** One field of a generic params form; `reset` is what clearing a finish sets (else clearing does nothing). */
+  function fieldInput(params: Record<string, unknown>, field: ParamField, key: string, put: (v: unknown, coalesce?: string) => void, reset?: () => unknown): HTMLElement | null {
+    const value = getPath(params, field.path);
+    switch (field.kind) {
+      case 'length':
+        return lengthField(typeof value === 'number' ? value : null, (u) => u > 0 && put(u, key), key, 'auto');
+      case 'choice': {
+        const options = field.options ?? [];
+        return selectField(key, options.map((o): [string, string] => [o, optionLabel(o)]), String(value ?? options[0] ?? ''), (v) => put(v));
+      }
+      case 'finish':
+        return finishPicker({ value: value as Finish | undefined, auto: 'Default', key, onChange: (f, dragging) => (f ? put(f, dragging ? key : undefined) : reset && put(reset())) });
+      case 'bool': {
+        const box = el('input', { type: 'checkbox', checked: !!value, 'data-key': key });
+        box.addEventListener('change', () => put(box.checked));
+        return el('label', { class: 'check' }, box);
+      }
+      case 'color': {
+        const pick = el('input', { type: 'color', value: typeof value === 'string' ? value : '#ffffff', 'data-key': key });
+        pick.addEventListener('input', () => put(pick.value, key));
+        return pick;
+      }
+      case 'angle':
+        return angleField(typeof value === 'number' ? value : 0, (d) => put(d, key), key, field.label);
+      default: {
+        const num = el('input', { type: 'number', value: typeof value === 'number' ? String(value) : '', 'data-key': key, style: 'width:72px' });
+        if (field.min !== undefined) num.min = String(field.min);
+        if (field.max !== undefined) num.max = String(field.max);
+        num.addEventListener('input', () => {
+          const n = Number(num.value);
+          if (num.value.trim() !== '' && Number.isFinite(n) && (field.kind !== 'count' || Number.isInteger(n))) put(n, key);
+        });
+        return num;
+      }
+    }
   }
 
   // ── One block ─────────────────────────────────────────────────────────────
@@ -691,8 +1057,14 @@ export function mountInspector(o: InspectorOptions): { focusNote(): void } {
     const part = doc.parts[t.node];
     const rest = actions.filter((a) => a.id !== 'delete' && a.id !== 'unlink');
     // The part's own settings first, then the cabinet it belongs to.
-    if (targets.length === 1 && part && !t.handle) out.push(...(part.block ? blockSections(part) : partSections(doc, part, actions)));
-    if (whole) out.push(section('Placement', ...placement(whole.id, whole.transform.position, whole.transform.rotation, true)));
+    if (targets.length === 1 && part && !t.handle) out.push(...(part.block ? blockSections(part) : isDecor(part) ? decorSections(doc, part) : partSections(doc, part, actions)));
+    const room = roomFor(doc, targets, whole);
+    // The room stays at the origin (its params are world coordinates) and its looks are its finishes.
+    if (whole && !room) out.push(section('Placement', ...placement(whole.id, whole.transform.position, whole.transform.rotation, true)));
+    const form = formGeneratorFor(doc, targets, whole);
+    // The room's looks are its finishes; an appliance's, its finish param.
+    const look = room || form ? null : finishSection(doc, targets, whole);
+    if (look) out.push(look);
     if (targets.length === 1 && t.handle) {
       const size = sizeSection(doc, t);
       if (size) out.push(size);
@@ -702,6 +1074,8 @@ export function mountInspector(o: InspectorOptions): { focusNote(): void } {
     const animation = animationSection(doc, targets, whole);
     if (animation) out.push(animation);
     if (rest.length) out.push(section('Actions', ...rest.map(actionRow)));
+    if (form) out.push(generatorFormSection(form));
+    if (room) out.push(...roomSections(room));
     out.push(noteSection);
     return out;
   }

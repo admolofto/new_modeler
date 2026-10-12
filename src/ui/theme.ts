@@ -48,6 +48,12 @@ b, strong { font-weight: 600; }
 #stage { grid-area: stage; position: relative; overflow: hidden; background: var(--canvas); }
 #viewport { position: absolute; inset: 0; }
 
+/* Presentation mode (ui/present/): the 3D view fills the window; only its own overlays and toasts show. */
+#app.presenting { grid-template-rows: 0 minmax(0, 1fr); grid-template-columns: 0 minmax(0, 1fr) 0; }
+#app.presenting > #topbar, #app.presenting > #left, #app.presenting > #right { display: none; }
+#app.presenting #stage > :not(#viewport, .pr-surface, .pr-hud, .pr-views, .pr-caption, .pr-menu, .pr-veil, .pr-tip, .toast) { display: none !important; }
+#app.presenting ~ * { display: none !important; }
+
 /* Buttons. */
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 28px; padding: 0 10px; flex: none;
   border: 1px solid transparent; border-radius: var(--r); background: var(--hover); color: var(--fg); font-size: var(--fs-sm); font-weight: 500;

@@ -189,9 +189,9 @@ describe('carcass drawer folders', () => {
     expect(a1.children).toEqual(['a1.side-left', 'a1.side-right', 'a1.bottom', 'a1.top', 'a1.back', 'a1.kick', 'a1.drawer-1', 'a1.drawer-2']);
     expect(d.assemblies['a1.drawer-1']).toMatchObject({ name: 'Drawer 1', role: 'drawer-1', transform: { position: [0, 0, 0], rotation: [0, 0, 0] } });
     expect(d.assemblies['a1.drawer-2']!.children).toEqual(box.map((s) => `a1.drawer-2-${s}`));
-    // Parts keep their ids and assembly-frame positions; the drawer still slides as one.
+    // Parts keep their ids and assembly-frame positions; the drawer's folder slides as one.
     expect(pos(d, 'a1.drawer-1-front')[2]).toBe(inches(24));
-    expect(d.motions['a1.motion.drawer-1']!.nodes).toEqual(box.map((s) => `a1.drawer-1-${s}`));
+    expect(d.motions['a1.motion.drawer-1']!.nodes).toEqual(['a1.drawer-1']);
     expect(ok(d, [setParams({ drawers: [0] })]).assemblies['a1.drawer-2']).toBeUndefined();
   });
 
@@ -229,10 +229,10 @@ describe('carcass doors and animations', () => {
   it('slides every drawer out on full-extension slides', () => {
     const d = carcass({ drawers: [0, 0], shelves: 0 });
     expect(motionsOf(d)).toEqual([
-      { id: 'a1.motion.drawer-1', name: 'Drawer 1', type: 'slide', nodes: 6, params: { toward: 'front', distance: D - BT - inches(1), seconds: 0.6 } },
-      { id: 'a1.motion.drawer-2', name: 'Drawer 2', type: 'slide', nodes: 6, params: { toward: 'front', distance: D - BT - inches(1), seconds: 0.6 } },
+      { id: 'a1.motion.drawer-1', name: 'Drawer 1', type: 'slide', nodes: 1, params: { toward: 'front', distance: D - BT - inches(1), seconds: 0.6 } },
+      { id: 'a1.motion.drawer-2', name: 'Drawer 2', type: 'slide', nodes: 1, params: { toward: 'front', distance: D - BT - inches(1), seconds: 0.6 } },
     ]);
-    expect(d.motions['a1.motion.drawer-1']!.nodes[0]).toBe('a1.drawer-1-front');
+    expect(d.motions['a1.motion.drawer-1']!.nodes[0]).toBe('a1.drawer-1');
     const more = ok(d, [setParams({ drawers: [0, 0, 0] })]);
     expect(Object.keys(more.motions)).toHaveLength(3);
     expect(ok(d, [setParams({ drawers: [] , shelves: 1 })]).motions).toEqual({});

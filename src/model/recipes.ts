@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { generators, pluginVersions } from '../plugins';
+import { isDecor, modelPartIds } from './decor';
 import { deepEqual, descendants, ModelError, parentIndex } from './doc';
 import { parseFormula, type Expr } from './expr';
 import { generatedOwner, genJointId, genMotionId, genPartId, regenerate } from './generate';
@@ -327,8 +328,10 @@ export function insertRecipe(target: Doc, value: Recipe, options: InsertRecipeOp
       if (part.block) {
         const p = part.shape.params as { x: number; y: number; z: number };
         ops.push({ op: 'add', entity: { kind: 'block', ...common, size: [p.x, p.y, p.z] }, parent, index });
+      } else if (isDecor(part)) {
+        ops.push({ op: 'add', entity: { kind: 'decor', ...common, grain: part.grain, shape: structuredClone(part.shape) }, parent, index });
       } else ops.push({ op: 'add', entity: { kind: 'part', ...common, material: ids[part.material!]!, grain: part.grain,
-        shape: structuredClone(part.shape), features: structuredClone(part.features) }, parent, index });
+        shape: structuredClone(part.shape), features: structuredClone(part.features), ...(part.finish && { finish: structuredClone(part.finish) }) }, parent, index });
     } else {
       const asm = doc.assemblies[id]!;
       const g = asm.generator;
@@ -338,7 +341,7 @@ export function insertRecipe(target: Doc, value: Recipe, options: InsertRecipeOp
       if (generator && generators.get(generator.type).materialRefs(generator.params).some((ref) => !Object.values(ids).includes(ref))) {
         throw new ModelError(`generator "${generator.type}" needs recipe material-reference support`);
       }
-      ops.push({ op: 'add', entity: { kind: 'assembly', ...common, ...(generator && { generator, overrides }) }, parent, index });
+      ops.push({ op: 'add', entity: { kind: 'assembly', ...common, ...(generator && { generator, overrides }), ...(asm.finish && { finish: structuredClone(asm.finish) }) }, parent, index });
       asm.children.forEach((child, at) => {
         if (!generatedOwner(doc, child)) copyNode(child, ids[id]!, at);
         // The user's own things in a generated folder go in the copy's.
@@ -364,13 +367,14 @@ export function insertRecipe(target: Doc, value: Recipe, options: InsertRecipeOp
 
 /**
  * `insertRecipe`, placed: at `position` when given, else (at top level) 12" to the right of everything
- * in the model, on the same floor and back line, so a new copy never lands inside existing work.
+ * in the model (not the room around it), on the same floor and back line, so a new copy never lands
+ * inside existing work.
  */
 export function placeRecipe(target: Doc, recipe: Recipe, options: InsertRecipeOptions = {}): RecipeInsertion {
   const insertion = insertRecipe(target, recipe, options);
   if (options.position || options.parent) return insertion;
   const boxes = worldBoxes(target);
-  const existing = target.roots.flatMap((id) => boxes.has(id) ? [boxes.get(id)!] : []);
+  const existing = modelPartIds(target).flatMap((id) => boxes.has(id) ? [boxes.get(id)!] : []);
   const added = worldBoxes(insertion.doc).get(insertion.wrapperId);
   if (!existing.length || !added) return insertion;
   const model = union(existing);

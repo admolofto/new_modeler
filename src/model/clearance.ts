@@ -1,5 +1,7 @@
 import { motions } from '../plugins';
-import { movingParts } from './doc';
+import { isDecor, isSolid } from './decor';
+import { movingParts, parentIndex } from './doc';
+import { generatedOwner } from './generate';
 import { motionBasis, motionName, movedAffines } from './motion';
 import type { Doc, Motion } from './schema';
 import { formatInches } from './units';
@@ -10,7 +12,9 @@ import { allAffines, localBox, penetration, transformBox, union, type Affine, ty
  * against every part that stays put: the first thing it hits, and how far open it is then (a door
  * hinged against a wall hits it just past 90°). Then everything open at once, for things that only
  * collide with each other (drawers meeting at an inside corner). Pairs already touching or overlapping
- * when closed don't count, nor does anything that rides along. Pure; memoized per doc.
+ * when closed don't count, nor does anything that rides along, nor decor that isn't solid (a rug,
+ * trim), nor two decor parts of one generated assembly (a room door and its casing). Walls stay
+ * obstacles. Pure; memoized per doc.
  */
 
 export interface Clash {
@@ -49,10 +53,17 @@ export function clearance(doc: Doc): Clash[] {
     }
     return locals.get(id)!;
   };
-  const parts = Object.keys(doc.parts).filter((id) => affines.has(id) && local(id));
+  const parts = Object.keys(doc.parts).filter((id) => affines.has(id) && isSolid(doc.parts[id]!) && local(id));
   const bounds = new Map(parts.map((id) => [id, transformBox(affines.get(id)!, local(id)!)]));
   const overlap = (a: Affine, p: string, b: Affine, q: string) => meets(transformBox(a, local(p)!), transformBox(b, local(q)!)) && penetration(a, local(p)!, b, local(q)!) > DEPTH;
-  const closedOverlap = (p: string, q: string) => overlap(affines.get(p)!, p, affines.get(q)!, q);
+  const parents = parentIndex(doc);
+  const owner = (id: string) => (isDecor(doc.parts[id]!) ? (generatedOwner(doc, id, parents)?.id ?? null) : null);
+  /** Decor the same generator laid out together (a room door against its casing) isn't checked. */
+  const together = (p: string, q: string) => {
+    const o = owner(p);
+    return o !== null && o === owner(q);
+  };
+  const closedOverlap = (p: string, q: string) => together(p, q) || overlap(affines.get(p)!, p, affines.get(q)!, q);
 
   const out: Clash[] = [];
   const moving = new Map<string, Set<string>>();
