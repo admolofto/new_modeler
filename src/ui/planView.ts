@@ -1,16 +1,18 @@
 import { blockPlacement, facingToward, moveOps, turnOps } from '../edit/blocks';
+import { openingEdges, resizeOpening, slideOpening, withOpening } from '../edit/openings';
+import { planGrips, planResizeOps, type PlanSide } from '../edit/planResize';
 import type { Target } from '../edit/targets';
 import type { V3 } from '../geometry/types';
 import { nextId, parentIndex } from '../model/doc';
 import { genPartId } from '../model/generate';
 import { applyOps, type Op } from '../model/ops';
 import { floorPlan, type P2, type Plan, type PlanItem, type PlanOpening, type PlanRoom } from '../model/plan';
-import { placeOpening, roomAround, roomOf, roomParams } from '../model/room';
+import { alongWall, placeOpening, roomAround, roomOf, roomParams } from '../model/room';
 import type { Doc } from '../model/schema';
 import type { Store } from '../model/store';
 import { inches } from '../model/units';
 import { IDENTITY } from '../model/world';
-import { insideSpan, openingLabel, type OpeningKind, type RoomOpening } from '../plugins/generators/room';
+import { openingLabel, ROOM_SIDES, type OpeningKind, type RoomParams, type RoomSide } from '../plugins/generators/room';
 import { el } from './dom';
 import { icon } from './icons';
 import { claimKeys } from './present/keys';
@@ -24,7 +26,8 @@ import { fmt } from './units';
  * cabinets and furniture as footprints (uppers dashed, talls crossed), names and sizes. It's for
  * blocking a layout out fast: drag pieces around (they snap to walls and each other), draw base,
  * upper and tall blocks, add windows and doors and slide them along their walls, turn pieces a
- * quarter (Q), delete them. Every change is an op through the store, like anywhere else, so undo,
+ * quarter (Q), delete them. Grips on the selection resize it: a piece's sides (pushed like Push /
+ * Pull: a cabinet gets wider or deeper), an opening's jambs, and the room's walls. Every change is an op through the store, like anywhere else, so undo,
  * the 3D view and the AI all see it. A button in the view group and Shift+2 open and close it.
  */
 
@@ -223,9 +226,16 @@ export function mountPlanView(o: PlanViewOptions): PlanView {
 
   type Gesture =
     | { kind: 'pan'; x: number; y: number; cx: number; cz: number; moved: boolean; clear: boolean }
-    | { kind: 'move'; x: number; y: number; ids: string[]; from: P2; moved: boolean; ops: Op[] }
-    | { kind: 'slide'; x: number; y: number; opening: PlanOpening; from: P2; moved: boolean; ops: Op[] }
+    /** Moving, sliding or resizing: `solve` turns the pointer's world point into ops on the store's doc. */
+    | { kind: 'edit'; x: number; y: number; moved: boolean; ops: Op[]; solve: (w: P2) => Op[]; cursor: string }
     | { kind: 'draw'; a: P2; b: P2 };
+  /** A grip drawn on the selection this redraw: where (screen), its cursor, and the edit it starts. */
+  interface Grip {
+    at: P2;
+    cursor: string;
+    start(w: P2): (w: P2) => Op[];
+  }
+  let grips: Grip[] = [];
   let gesture: Gesture | null = null;
   let hover: string | null = null;
 
@@ -268,6 +278,9 @@ export function mountPlanView(o: PlanViewOptions): PlanView {
       (t) => t.node === genPartId(op.room, `window-${op.id}`) || t.node.startsWith(genPartId(op.room, `door-${op.id}`)) || (t.handle?.startsWith(`${op.id}:`) && t.node === genPartId(op.room, `wall-${op.wall}`)),
     );
   const selectedOpenings = (plan: Plan) => plan.rooms.flatMap((r) => r.openings.filter(openingSelected));
+  /** Rooms whose walls show their grips: the room, or one of its walls (not an opening's jamb), is selected. */
+  const roomSelected = (r: PlanRoom) =>
+    selection.targets.some((t) => t.node === r.id || (!t.handle && ROOM_SIDES.some((side) => t.node === genPartId(r.id, `wall-${side}`))));
 
   // ── drawing ──
 
@@ -314,8 +327,10 @@ export function mountPlanView(o: PlanViewOptions): PlanView {
       out.push(itemLabel(i, pts));
     }
 
-    // The selection's clearances to the walls.
+    // The selection's clearances to the walls, and its grips.
     out.push(clearances(plan, sel));
+    grips = gesture?.kind === 'draw' ? [] : selectionGrips(plan, doc, sel);
+    for (const g of grips) out.push(`<rect x="${f1(g.at[0] - 5)}" y="${f1(g.at[1] - 5)}" width="10" height="10" rx="1.5" fill="#fff" stroke="${ACCENT}" stroke-width="1.6"/>`);
 
     // A block being drawn.
     if (gesture?.kind === 'draw') {
@@ -331,6 +346,98 @@ export function mountPlanView(o: PlanViewOptions): PlanView {
 
     out.push(northArrow());
     svg.innerHTML = out.join('');
+  }
+
+  /** Screen cursor for dragging along a world direction. */
+  const cursorFor = (n: P2) => (Math.abs(n[0]) >= Math.abs(n[1]) ? 'ew-resize' : 'ns-resize');
+  /** A room coordinate along a wall from a world point: x on the back and front walls, z on the sides. */
+  const coordOn = (side: RoomSide, w: P2) => (side === 'back' || side === 'front' ? w[0] : w[1]);
+
+  /**
+   * The grips for what's selected: one piece's four sides, each selected opening's two jambs, and a
+   * selected room's walls. Each starts an edit on the store's doc as it is when the drag starts.
+   */
+  function selectionGrips(plan: Plan, doc: Doc, sel: Set<string>): Grip[] {
+    const out: Grip[] = [];
+    const tol = () => SNAP_PX / scale;
+    const mid = (a: P2, b: P2): P2 => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    // A piece: push or pull a side.
+    const item = sel.size === 1 ? plan.items.find((i) => sel.has(i.id)) : undefined;
+    if (item) {
+      const edge: Record<PlanSide, [number, number]> = { left: [0, 3], right: [1, 2], back: [0, 1], front: [2, 3] };
+      for (const g of planGrips(doc, item.id)) {
+        const [a, b] = edge[g.side];
+        const at = mid(item.corners[a]!, item.corners[b]!);
+        out.push({
+          at: toScreen(at),
+          cursor: cursorFor(g.normal),
+          start: (from) => {
+            const base = store.doc;
+            const basePlan = floorPlan(base);
+            const k = Math.abs(g.normal[0]) > 0.999 ? 0 : Math.abs(g.normal[1]) > 0.999 ? 1 : null;
+            const { xs, zs } = snapLines(basePlan, new Set([item.id]));
+            return (w) => {
+              let s = (w[0] - from[0]) * g.normal[0] + (w[1] - from[1]) * g.normal[1];
+              // The side's new place snaps to walls and other pieces' edges, else the 1/2" grid.
+              const snap = k === null ? null : snapShift([at[k] + s * g.normal[k]!], k === 0 ? xs : zs, tol());
+              s = snap !== null && k !== null ? s + snap * g.normal[k]! : Math.round(s / STEP) * STEP;
+              return planResizeOps(base, g, Math.round(s));
+            };
+          },
+        });
+      }
+    }
+    // An opening: pull a jamb along its wall.
+    for (const op of selectedOpenings(plan)) {
+      for (const [k, grip] of [[0, 'left'], [1, 'right']] as const) {
+        out.push({
+          at: toScreen(mid(op.inside[k], op.outside[k])),
+          cursor: cursorFor([op.inside[1][0] - op.inside[0][0], op.inside[1][1] - op.inside[0][1]]),
+          start: () => {
+            const base = store.doc;
+            const asm = base.assemblies[op.room];
+            if (!asm) return () => [];
+            const p = roomParams(asm);
+            return (w) => {
+              const next = resizeOpening(p, op.id, grip, alongWall(p, op.wall, coordOn(op.wall, w)), STEP);
+              return next ? [openingsOp(op.room, withOpening(p, next))] : [];
+            };
+          },
+        });
+      }
+    }
+    // A room: move a wall.
+    for (const r of plan.rooms) {
+      if (!roomSelected(r)) continue;
+      const asm = doc.assemblies[r.id];
+      if (!asm) continue;
+      const p = roomParams(asm);
+      const spots: Record<RoomSide, P2> = {
+        back: [(r.min[0] + r.max[0]) / 2, r.min[1]],
+        front: [(r.min[0] + r.max[0]) / 2, r.max[1]],
+        left: [r.min[0], (r.min[1] + r.max[1]) / 2],
+        right: [r.max[0], (r.min[1] + r.max[1]) / 2],
+      };
+      for (const side of p.walls) {
+        const across = side === 'left' || side === 'right' ? 0 : 1;
+        out.push({
+          at: toScreen(spots[side]),
+          cursor: across === 0 ? 'ew-resize' : 'ns-resize',
+          start: () => {
+            const base = store.doc;
+            const { xs, zs } = snapLines(floorPlan(base), new Set());
+            const lines = (across === 0 ? xs : zs).filter((l) => l !== spots[side][across]);
+            return (w) => {
+              const raw = w[across]!;
+              const snap = snapShift([raw], lines, tol());
+              const value = Math.round(snap !== null ? raw + snap : Math.round(raw / STEP) * STEP);
+              return value === p[side] ? [] : [{ op: 'update', id: r.id, patch: { params: { [side]: value } } }];
+            };
+          },
+        });
+      }
+    }
+    return out;
   }
 
   function grid(): string {
@@ -358,12 +465,13 @@ export function mountPlanView(o: PlanViewOptions): PlanView {
 
   function roomMarkup(r: PlanRoom, S: (p: P2) => P2): string {
     const out: string[] = [];
+    const picked = roomSelected(r);
     for (const w of r.walls) {
       for (const [k, piece] of w.pieces.entries()) {
         const pts = piece.map(S);
         out.push(`<path d="M${pts.map((p) => p.map(f1).join(',')).join('L')}Z" fill="#efe7d6"/>`);
         out.push(`<path d="M${pts.map((p) => p.map(f1).join(',')).join('L')}Z" fill="url(#pv-hatch)"/>`);
-        out.push(`<path d="${sketchPoly(pts, `${r.id}:${w.side}:${k}`)}" fill="none" stroke="${INK}" stroke-width="1.7" stroke-linecap="round"/>`);
+        out.push(`<path d="${sketchPoly(pts, `${r.id}:${w.side}:${k}`)}" fill="none" stroke="${picked ? ACCENT : INK}" stroke-width="1.7" stroke-linecap="round"/>`);
       }
     }
     for (const op of r.openings) {
@@ -502,7 +610,7 @@ export function mountPlanView(o: PlanViewOptions): PlanView {
 
   // ── hits ──
 
-  type Hit = { kind: 'item'; item: PlanItem } | { kind: 'opening'; opening: PlanOpening } | null;
+  type Hit = { kind: 'item'; item: PlanItem } | { kind: 'opening'; opening: PlanOpening } | { kind: 'wall'; room: string; side: RoomSide } | null;
   function hitAt(plan: Plan, w: P2): Hit {
     const pad = 4 / scale;
     for (const r of plan.rooms) {
@@ -516,9 +624,11 @@ export function mountPlanView(o: PlanViewOptions): PlanView {
       const item = plan.items[k]!;
       if (inPoly(w, item.corners)) return { kind: 'item', item };
     }
+    for (const r of plan.rooms) for (const wall of r.walls) if (wall.pieces.some((piece) => inPoly(w, piece))) return { kind: 'wall', room: r.id, side: wall.side };
     return null;
   }
-  const hitKey = (h: Hit) => (!h ? null : h.kind === 'item' ? h.item.id : `${h.opening.room}:${h.opening.id}`);
+  const hitKey = (h: Hit) => (!h ? null : h.kind === 'item' ? h.item.id : h.kind === 'wall' ? `${h.room}:wall` : `${h.opening.room}:${h.opening.id}`);
+  const gripAt = (x: number, y: number) => grips.find((g) => Math.abs(g.at[0] - x) <= 7 && Math.abs(g.at[1] - y) <= 7);
 
   // ── edits ──
 
@@ -534,20 +644,39 @@ export function mountPlanView(o: PlanViewOptions): PlanView {
     return r.ok;
   }
 
-  /** The new `at` for an opening slid by a world displacement, along its wall and kept on it. */
-  function slidOps(doc: Doc, op: PlanOpening, delta: P2): Op[] {
-    const asm = doc.assemblies[op.room];
-    if (!asm) return [];
+  const openingsOp = (room: string, p: RoomParams): Op => ({ op: 'update', id: room, patch: { params: { openings: p.openings } } });
+
+  /** Sliding an opening along its wall from where it was grabbed (stopping against its neighbors, as in 3D). */
+  function slideSolver(op: PlanOpening, from: P2): (w: P2) => Op[] {
+    const base = store.doc;
+    const asm = base.assemblies[op.room];
+    const o0 = asm && roomParams(asm).openings.find((q) => q.id === op.id);
+    if (!asm || !o0) return () => [];
     const p = roomParams(asm);
-    const along = op.wall === 'back' || op.wall === 'front' ? delta[0] : delta[1];
-    const openings = p.openings.map((q): RoomOpening => {
-      if (q.id !== op.id) return q;
-      const [min, max] = insideSpan(p, q.wall);
-      const half = Math.floor(q.width / 2);
-      const at = Math.min(Math.max(Math.round((q.at + along) / 64) * 64, min + half), max - q.width + half);
-      return { ...q, at };
-    });
-    return [{ op: 'update', id: op.room, patch: { params: { openings } } }];
+    const grab = alongWall(p, op.wall, coordOn(op.wall, from)) - openingEdges(p, o0)[0];
+    return (w) => {
+      const slid = slideOpening(p, op.id, op.wall, alongWall(p, op.wall, coordOn(op.wall, w)) - grab, inches(1), inches(2));
+      return slid && slid.opening.at !== o0.at ? [openingsOp(op.room, withOpening(p, slid.opening))] : [];
+    };
+  }
+
+  /** Moving pieces: their edges snap to the walls and the other pieces, else to the 1/2" grid. */
+  function moveSolver(ids: string[], from: P2): (w: P2) => Op[] {
+    const base = store.doc;
+    const plan = floorPlan(base);
+    const moving = new Set(ids);
+    const b = boxOf(plan.items.filter((i) => moving.has(i.id)).flatMap((i) => i.corners));
+    const { xs, zs } = snapLines(plan, moving);
+    return (w) => {
+      let dx = w[0] - from[0];
+      let dz = w[1] - from[1];
+      const tol = SNAP_PX / scale;
+      const sx = snapShift([b.min[0] + dx, b.max[0] + dx], xs, tol);
+      const sz = snapShift([b.min[1] + dz, b.max[1] + dz], zs, tol);
+      dx = sx !== null ? dx + sx : Math.round(dx / STEP) * STEP;
+      dz = sz !== null ? dz + sz : Math.round(dz / STEP) * STEP;
+      return moveOps(base, ids, [Math.round(dx), 0, Math.round(dz)]);
+    };
   }
 
   function addBlock(a: P2, b: P2) {
@@ -653,6 +782,11 @@ export function mountPlanView(o: PlanViewOptions): PlanView {
       gesture = { kind: 'draw', a, b: a };
       return render();
     }
+    const grip = gripAt(x, y);
+    if (grip) {
+      gesture = { kind: 'edit', x, y, moved: false, ops: [], solve: grip.start(w), cursor: grip.cursor };
+      return;
+    }
     const hit = hitAt(plan, w);
     if (!hit) {
       gesture = { kind: 'pan', x, y, cx, cz, moved: false, clear: !e.shiftKey };
@@ -663,7 +797,13 @@ export function mountPlanView(o: PlanViewOptions): PlanView {
       const t = openingTarget(doc, hit.opening);
       if (additive) selection.toggle(t);
       else if (!openingSelected(hit.opening)) selection.set([t]);
-      gesture = { kind: 'slide', x, y, opening: hit.opening, from: w, moved: false, ops: [] };
+      gesture = { kind: 'edit', x, y, moved: false, ops: [], solve: slideSolver(hit.opening, w), cursor: 'grabbing' };
+      return;
+    }
+    if (hit.kind === 'wall') {
+      const t = { node: genPartId(hit.room, `wall-${hit.side}`) };
+      if (additive) selection.toggle(t);
+      else selection.set([t]);
       return;
     }
     const id = hit.item.id;
@@ -671,14 +811,16 @@ export function mountPlanView(o: PlanViewOptions): PlanView {
     if (additive) selection.toggle({ node: id });
     else if (!sel.has(id)) selection.set([{ node: id }]);
     const ids = [...selectedItems(plan, doc)];
-    gesture = { kind: 'move', x, y, ids: ids.includes(id) ? ids : [id], from: w, moved: false, ops: [] };
+    gesture = { kind: 'edit', x, y, moved: false, ops: [], solve: moveSolver(ids.includes(id) ? ids : [id], w), cursor: 'grabbing' };
   });
 
   svg.addEventListener('pointermove', (e) => {
     const [x, y] = local(e);
     const w = toWorld(x, y);
     if (!gesture) {
-      const next = mode === 'select' ? hitKey(hitAt(floorPlan(o.shown()), w)) : null;
+      const grip = mode === 'select' ? gripAt(x, y) : undefined;
+      svg.style.cursor = grip ? grip.cursor : '';
+      const next = mode === 'select' && !grip ? hitKey(hitAt(floorPlan(o.shown()), w)) : null;
       if (next !== hover) {
         hover = next;
         render();
@@ -705,25 +847,13 @@ export function mountPlanView(o: PlanViewOptions): PlanView {
       return;
     }
     gesture.moved = true;
-    const plan = floorPlan(doc);
-    let dx = w[0] - gesture.from[0];
-    let dz = w[1] - gesture.from[1];
-    if (gesture.kind === 'move') {
-      // Snap the moving pieces' edges to the walls and the other pieces, else to the 1/2" grid.
-      const moving = new Set(gesture.ids);
-      const b = boxOf(plan.items.filter((i) => moving.has(i.id)).flatMap((i) => i.corners));
-      const { xs, zs } = snapLines(plan, moving);
-      const tol = SNAP_PX / scale;
-      const sx = snapShift([b.min[0] + dx, b.max[0] + dx], xs, tol);
-      const sz = snapShift([b.min[1] + dz, b.max[1] + dz], zs, tol);
-      dx = sx !== null ? dx + sx : Math.round(dx / STEP) * STEP;
-      dz = sz !== null ? dz + sz : Math.round(dz / STEP) * STEP;
-      gesture.ops = moveOps(doc, gesture.ids, [Math.round(dx), 0, Math.round(dz)]);
-    } else {
-      gesture.ops = slidOps(doc, gesture.opening, [dx, dz]);
-    }
-    const r = applyOps(doc, gesture.ops);
-    o.setPreview(r.ok ? r.doc : null);
+    svg.style.cursor = gesture.cursor;
+    const ops = gesture.solve(w);
+    const r = ops.length ? applyOps(doc, ops) : null;
+    // A step the model refuses (a wall past an opening, a room too small) keeps the last good one.
+    if (r && !r.ok) return;
+    gesture.ops = ops;
+    o.setPreview(r?.ok ? r.doc : null);
   });
 
   const finish = (e: PointerEvent, cancel = false) => {
@@ -741,6 +871,7 @@ export function mountPlanView(o: PlanViewOptions): PlanView {
       return render();
     }
     o.setPreview(null);
+    svg.style.cursor = '';
     if (g.moved && !cancel) dispatch(g.ops);
   };
   svg.addEventListener('pointerup', (e) => finish(e));
@@ -777,7 +908,7 @@ export function mountPlanView(o: PlanViewOptions): PlanView {
   // ── the bar ──
 
   const HINTS: Record<Mode, string> = {
-    select: 'Drag pieces, windows and doors to move them; drag the paper to pan, scroll to zoom. Q turns, Del deletes.',
+    select: 'Drag pieces, windows and doors to move them, and the blue grips to resize (click a wall for the room’s). Drag the paper to pan, scroll to zoom. Q turns, Del deletes.',
     base: 'Drag out a base block (34 ½″ high). Its back goes to the nearest wall.',
     upper: 'Drag out an upper (54″ to 84″ off the floor), drawn dashed.',
     tall: 'Drag out a tall block (floor to 84″).',
