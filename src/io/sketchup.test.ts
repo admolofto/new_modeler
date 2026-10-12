@@ -127,6 +127,114 @@ describe('SketchUp import', () => {
   });
 });
 
+describe('SketchUp curves', () => {
+  const importParts = (parts: Record<string, number[][][]>) => {
+    const { doc, summary } = importSketchUp(emptyDoc(), parseCollada(sketchUpFile(parts)), 'Curves');
+    const boxes = worldBoxes(doc);
+    const get = (name: string) => {
+      const part = byName(doc, name);
+      return { part, size: boxSize(boxes.get(part.id)!), points: part.shape.type === 'outline' ? (part.shape.params as { points: { sag?: number; r?: number }[] }).points : [] };
+    };
+    return { doc, summary, get };
+  };
+  const square = (rot: number[]) => rot.every((r) => Math.abs(r % 90) < 1e-9);
+
+  it('imports a 24-sided pad as a true circle, squared to its parent', () => {
+    // 6" across, 1" thick, standing on SketchUp's ground (blue up).
+    const { summary, get } = importParts({ Pad: prismFaces(circle(3, 24), 1, ([u, v], w) => [u + 10, v + 10, w]) });
+    expect(summary).toMatchObject({ outlines: 1, blocks: 0 });
+    const { part, size, points } = get('Pad');
+    expect(points).toHaveLength(4);
+    expect(points.every((p) => p.sag! > 0)).toBe(true);
+    expect(square(part.transform.rotation)).toBe(true);
+    for (const [k, want] of [[0, 6], [1, 1], [2, 6]] as const) expect(Math.abs(size[k]! - inches(want))).toBeLessThanOrEqual(1);
+  });
+
+  it('imports a long dowel round instead of as a blockout, grain along its length', () => {
+    // 1" dowel, 36" long, lying along SketchUp's red (X) axis.
+    const { summary, get } = importParts({ Dowel: prismFaces(circle(0.5, 24), 36, ([u, v], w) => [w, u, v + 0.5]) });
+    expect(summary).toMatchObject({ outlines: 1, blocks: 0 });
+    const { part, size, points } = get('Dowel');
+    expect(points).toHaveLength(4);
+    expect(points.every((p) => p.sag! > 0)).toBe(true);
+    expect(part.grain).toBe('x');
+    for (const [k, want] of [[0, 36], [1, 1], [2, 1]] as const) expect(Math.abs(size[k]! - inches(want))).toBeLessThanOrEqual(1);
+  });
+
+  it('keeps a small 1/4" dowel round', () => {
+    const { get } = importParts({ Pin: prismFaces(circle(0.125, 24), 2, ([u, v], w) => [u, v, w]) });
+    expect(get('Pin').points.every((p) => p.sag! > 0)).toBe(true);
+  });
+
+  it('turns tangent arcs into rounded corners', () => {
+    // 24" × 16" top, 2" corner radius, SketchUp's default 12 segments per arc.
+    const { get } = importParts({ Top: prismFaces(roundedRect(24, 16, 2, 12), 0.75, ([u, v], w) => [u, v, w]) });
+    const { size, points } = get('Top');
+    expect(points).toHaveLength(4);
+    expect(points.map((p) => p.r)).toEqual(Array(4).fill(inches(2)));
+    for (const [k, want] of [[0, 24], [1, 0.75], [2, 16]] as const) expect(Math.abs(size[k]! - inches(want))).toBeLessThanOrEqual(1);
+  });
+
+  it('turns a non-tangent arc into a curved side and leaves an octagon faceted', () => {
+    // A 20" apron, 4" tall over the arch, its bottom arched up along a 30" radius (12 facets).
+    const R = 30;
+    const half = Math.asin(10 / R);
+    const rise = R - R * Math.cos(half);
+    const bottom = Array.from({ length: 13 }, (_, k): [number, number] => {
+      const ang = Math.PI / 2 + half - (2 * half * k) / 12;
+      return [10 + R * Math.cos(ang), R * Math.sin(ang) - R * Math.cos(half)];
+    });
+    const apron: [number, number][] = [...bottom, [20, rise + 4], [0, rise + 4]];
+    const { get } = importParts({
+      Apron: prismFaces(apron, 0.75, ([u, v], w) => [u, w, v]),
+      Octagon: prismFaces(circle(4, 8), 1, ([u, v], w) => [u + 40, v, w]),
+    });
+    const curved = get('Apron').points.filter((p) => p.sag);
+    expect(curved).toHaveLength(1);
+    expect(curved[0]!.sag).toBeLessThan(0); // bows into the part
+    expect(Math.abs(Math.abs(curved[0]!.sag!) - inches(rise))).toBeLessThanOrEqual(1);
+    expect(get('Octagon').points).toHaveLength(8);
+    expect(get('Octagon').points.some((p) => p.sag || p.r)).toBe(false);
+  });
+});
+
+/** SketchUp-style circle: `n` vertices on the radius, the first on +u. */
+function circle(r: number, n: number): [number, number][] {
+  return Array.from({ length: n }, (_, k) => [r * Math.cos((2 * Math.PI * k) / n), r * Math.sin((2 * Math.PI * k) / n)]);
+}
+
+/** Counter-clockwise rectangle from the origin with corners filleted by `segs`-facet arcs. */
+function roundedRect(w: number, h: number, r: number, segs: number): [number, number][] {
+  const centers = [[w - r, r], [w - r, h - r], [r, h - r], [r, r]] as const;
+  return centers.flatMap(([cx, cy], c) =>
+    Array.from({ length: segs + 1 }, (_, k): [number, number] => {
+      const ang = ((c - 1) * Math.PI) / 2 + (k * Math.PI) / 2 / segs;
+      return [cx + r * Math.cos(ang), cy + r * Math.sin(ang)];
+    }),
+  );
+}
+
+/** Faces of a straight extrusion of `profile` by `length`, placed by `place` (SketchUp coordinates). */
+function prismFaces(profile: [number, number][], length: number, place: (uv: [number, number], w: number) => number[]): number[][][] {
+  const at = (i: number, w: number) => place(profile[i % profile.length]!, w);
+  const ring = (w: number) => profile.map((_, i) => at(i, w));
+  return [ring(0).reverse(), ring(length), ...profile.map((_, i) => [at(i, 0), at(i + 1, 0), at(i + 1, length), at(i, length)])];
+}
+
+/** A SketchUp-style file with one group per entry. */
+function sketchUpFile(parts: Record<string, number[][][]>): string {
+  const names = Object.keys(parts);
+  return `<?xml version="1.0" encoding="utf-8"?>
+<COLLADA xmlns="http://www.collada.org/2005/11/COLLADASchema" version="1.4.1">
+<asset><unit meter="0.0254" name="inch"/><up_axis>Z_UP</up_axis></asset>
+<library_geometries>${names.map((n, i) => polylist(`g${i}`, parts[n]!, 'M', true)).join('\n')}</library_geometries>
+<library_visual_scenes><visual_scene id="scene">
+${names.map((n, i) => `<node name="${n}"><instance_geometry url="#g${i}"/></node>`).join('\n')}
+</visual_scene></library_visual_scenes>
+<scene><instance_visual_scene url="#scene"/></scene>
+</COLLADA>`;
+}
+
 /** Quads of an axis-aligned box from `o` with size `s` (SketchUp coordinates). */
 function boxQuads(o: number[], s: number[]): number[][][] {
   const [x0, y0, z0] = o as [number, number, number];

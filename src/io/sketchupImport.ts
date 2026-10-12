@@ -8,13 +8,15 @@ import { applyOps, type Op } from '../model/ops';
 import type { Doc, Grain, Material } from '../model/schema';
 import { formatInches, UNITS_PER_INCH } from '../model/units';
 import { apply, eulerXYZ, mul, rotate, transpose, union, worldBoxes, type Affine, type Mat3 } from '../model/world';
+import { cleanLoop, fitArcs, roundFit, type FitPoint } from './arcFit';
 import { BLOCKOUT_MATERIAL, type ColladaMaterial, type ColladaNode, type ColladaScene } from './collada';
 
 /**
  * SketchUp model (read from .dae) → editable parts. Each group or component with its own faces
  * becomes one part per connected solid:
  *  - a straight extrusion (caps plus walls square to them) whose outline is a rectangle → box part;
- *  - any other straight extrusion → outline part (notches, angled ends, curves as facets);
+ *  - any other straight extrusion → outline part (notches, angled ends; faceted circles and arcs
+ *    come back as curved sides or rounded corners, so cylinders and dowels import round);
  *  - anything else (moldings, hardware, appliances) → blockout of its bounds.
  * Holes and pockets inside an extrusion are dropped (counted as simplified). Groups that hold
  * other groups become assemblies. Thickness picks the material: a same-named material in the
@@ -179,7 +181,11 @@ interface IRPart {
   /** World position of the local min corner. */
   o: V3;
   size: V3;
-  shape: { type: 'box'; params: { x: number; y: number; z: number } } | { type: 'outline'; params: { axis: 'x' | 'y' | 'z'; thickness: number; points: { at: V2 }[] } } | null;
+  shape: IRShape | null;
+  /** Shapes to fall back on, in order, if `shape` won't build (the faceted outline behind fitted arcs). */
+  alt?: IRShape[];
+  /** The outline is all curve (a cylinder): its turn about the axis is arbitrary. */
+  round?: boolean;
   thickness: number;
   grain: Grain;
   mat: ColladaMaterial | null;
@@ -192,6 +198,9 @@ interface IRAsm {
   children: IR[];
 }
 type IR = IRPart | IRAsm;
+type IRShape =
+  | { type: 'box'; params: { x: number; y: number; z: number } }
+  | { type: 'outline'; params: { axis: 'x' | 'y' | 'z'; thickness: number; points: FitPoint[] } };
 
 const LETTERS = ['x', 'y', 'z'] as const;
 
@@ -211,17 +220,28 @@ function fit(name: string, tris: Tri[], nodeAxes: Mat3): IRPart | null {
   const mat = dominantMaterial(tris);
   if (mat?.name === BLOCKOUT_MATERIAL) return block(name, tris, nodeAxes, null);
   // Try the biggest face directions as the extrusion axis; a stick with an L section extrudes along
-  // its length even though its long faces are bigger. Prefer a fit that keeps every face.
+  // its length even though its long faces are bigger. Small caps square to every other face count
+  // too: a long dowel's ends are smaller than its facets. Prefer a fit that keeps every face.
+  const capLike = (c: (typeof clusters)[number]) => clusters.every((o) => o === c || Math.abs(dot(o.dir, c.dir)) < PERP);
+  const axes = clusters.filter((c, i) => i < 4 || capLike(c)).slice(0, 8);
   let first: IRPart | null = null;
-  for (const { dir: d } of clusters.slice(0, 4)) {
+  for (const { dir: d } of axes) {
     if (!tris.every((t) => Math.abs(dot(t.n, d)) > PAR || Math.abs(dot(t.n, d)) < PERP)) continue;
     const w = clusters.find((c) => Math.abs(dot(c.dir, d)) < PERP)?.dir;
     if (!w) continue;
-    const result = extrusion(name, tris, d, norm(sub(w, scale(d, dot(w, d)))), mat);
+    let result = extrusion(name, tris, d, norm(sub(w, scale(d, dot(w, d)))), mat);
+    // A cylinder has no flat side to line up with: square it to the parent instead.
+    if (result?.round) result = extrusion(name, tris, d, squareTo(d), mat) ?? result;
     if (result && !result.simplified) return result;
     first ??= result;
   }
   return first ?? block(name, tris, nodeAxes, mat);
+}
+
+/** The parent axis most across `d`, made exactly perpendicular to it. */
+function squareTo(d: V3): V3 {
+  const e = column(I3, [0, 1, 2].reduce((best, k) => (Math.abs(d[k]!) < Math.abs(d[best]!) ? k : best), 0));
+  return norm(sub(e, scale(d, dot(e, d))));
 }
 
 function dominantMaterial(tris: Tri[]): ColladaMaterial | null {
@@ -268,24 +288,33 @@ function extrusion(name: string, tris: Tri[], d: V3, u: V3, mat: ColladaMaterial
   const loops = boundaryLoops(caps[1]!);
   if (!loops.length || !caps[0]!.length) return null;
   const [a, b] = CAP_AXES[dAxis as 0 | 1 | 2];
-  const to2 = (p: V3): V2 => [Math.round(dot(p, axes[a]!) - min[a]!), Math.round(dot(p, axes[b]!) - min[b]!)];
-  const polys = loops.map((l) => simplify(l.map(to2))).filter((p) => p.length >= 3);
-  if (!polys.length) return null;
-  polys.sort((p, q) => Math.abs(signedArea(q)) - Math.abs(signedArea(p)));
-  let outer = polys[0]!;
-  if (signedArea(outer) < 0) outer = outer.reverse();
+  const to2 = (p: V3): V2 => [dot(p, axes[a]!) - min[a]!, dot(p, axes[b]!) - min[b]!];
+  const rings = loops
+    .map((l) => {
+      const exact = cleanLoop(l.map(to2));
+      return { exact, faceted: simplify(exact.map(([x, y]): V2 => [Math.round(x), Math.round(y)])) };
+    })
+    .filter((r) => r.faceted.length >= 3);
+  if (!rings.length) return null;
+  rings.sort((p, q) => Math.abs(signedArea(q.exact)) - Math.abs(signedArea(p.exact)));
+  let { exact, faceted: outer } = rings[0]!;
+  if (signedArea(exact) < 0) [exact, outer] = [[...exact].reverse(), [...outer].reverse()];
   const area = (ts: Tri[]) => ts.reduce((s, x) => s + x.area, 0);
-  const simplified = inner || polys.length > 1 || Math.abs(area(caps[0]!) - area(caps[1]!)) > 0.01 * area(caps[1]!);
+  const simplified = inner || rings.length > 1 || Math.abs(area(caps[0]!) - area(caps[1]!)) > 0.01 * area(caps[1]!);
 
   const R = snap(fromColumns(axes[0]!, axes[1]!, axes[2]!));
   const o = [0, 1, 2].reduce<V3>((acc, k) => [acc[0] + axes[k]![0]! * min[k]!, acc[1] + axes[k]![1]! * min[k]!, acc[2] + axes[k]![2]! * min[k]!], [0, 0, 0]);
-  const inPlane = [a, b].sort((i, j) => size[j]! - size[i]!)[0]!;
-  const grain = LETTERS[inPlane]!;
+  // Grain runs the long way: along the length of a stick or dowel, else the longer side of a panel.
+  const grain = LETTERS[[a, b, dAxis].sort((i, j) => size[j]! - size[i]!)[0]!]!;
   const rect = outer.length === 4 && outer.every(([x, y]) => (x === 0 || x === size[a]) && (y === 0 || y === size[b]));
-  const shape = rect
-    ? { type: 'box' as const, params: { x: size[0], y: size[1], z: size[2] } }
-    : { type: 'outline' as const, params: { axis: LETTERS[dAxis]!, thickness: t, points: outer.map((at) => ({ at })) } };
-  return { kind: 'part', name, R, o, size, shape, thickness: t, grain, mat, simplified };
+  if (rect) return { kind: 'part', name, R, o, size, shape: { type: 'box', params: { x: size[0], y: size[1], z: size[2] } }, thickness: t, grain, mat, simplified };
+  const outline = (points: FitPoint[]): IRShape => ({ type: 'outline', params: { axis: LETTERS[dAxis]!, thickness: t, points } });
+  const facets = outline(outer.map((at) => ({ at })));
+  const fitted = fitArcs(exact);
+  const curved = fitted && roundFit(fitted);
+  if (!curved) return { kind: 'part', name, R, o, size, shape: facets, thickness: t, grain, mat, simplified };
+  const round = curved.every((p) => p.sag);
+  return { kind: 'part', name, R, o, size, shape: outline(curved), alt: [facets], round, thickness: t, grain, mat, simplified };
 }
 
 /** Closed loops of a cap's outline edges, as 3D points. */
@@ -502,26 +531,24 @@ export function importSketchUp(target: Doc, scene: ColladaScene, title = 'Sketch
     return id;
   };
 
-  /** Part op, or a blockout in its place when the outline can't be built (self-crossing after rounding…). */
+  /**
+   * Part op from the first shape that builds (fitted arcs, then plain facets), or a blockout in its
+   * place when none does (self-crossing after rounding…).
+   */
   const partOps = (p: IRPart, base: { id: string; name: string; transform: { position: V3; rotation: V3 } }, parent: string): Op => {
-    const asBlock = (): Op => ({ op: 'add', entity: { kind: 'block', ...base, size: p.size }, parent });
-    if (!p.shape) {
-      summary.blocks++;
-      return asBlock();
+    const material = p.shape ? materialFor(p) : '';
+    const m = known.find((k) => k.id === material);
+    for (const shape of p.shape ? [p.shape, ...(p.alt ?? [])] : []) {
+      const op: Op = { op: 'add', entity: { kind: 'part', ...base, material, grain: p.grain, shape }, parent: null };
+      const scratch = emptyDoc();
+      if (!applyOps(scratch, [...(scratch.materials[material] ? [] : [{ op: 'add', entity: { kind: 'material', ...m! } } as Op]), op]).ok) continue;
+      if (shape.type === 'box') summary.boxes++;
+      else summary.outlines++;
+      if (p.simplified) summary.simplified++;
+      return { ...op, parent };
     }
-    const material = materialFor(p);
-    const op: Op = { op: 'add', entity: { kind: 'part', ...base, material, grain: p.grain, shape: p.shape }, parent: null };
-    const scratch = emptyDoc();
-    const m = known.find((k) => k.id === material)!;
-    const probe = applyOps(scratch, [...(scratch.materials[material] ? [] : [{ op: 'add', entity: { kind: 'material', ...m } } as Op]), op]);
-    if (!probe.ok) {
-      summary.blocks++;
-      return asBlock();
-    }
-    if (p.shape.type === 'box') summary.boxes++;
-    else summary.outlines++;
-    if (p.simplified) summary.simplified++;
-    return { ...op, parent };
+    summary.blocks++;
+    return { op: 'add', entity: { kind: 'block', ...base, size: p.size }, parent };
   };
 
   const emit = (ir: IR, parentR: Mat3, parentO: V3, parent: string | null, id: string) => {
