@@ -43,6 +43,7 @@ import { mountOutline } from './ui/outline';
 import { createProposals } from './ui/proposals';
 import { pushPullTool } from './ui/pushPullTool';
 import { mountRecipesPanel } from './ui/recipesPanel';
+import { mountRoomBar } from './ui/roomBar';
 import { rotateTool } from './ui/rotateTool';
 import { browserRecipeLibrary } from './ui/recipeStorage';
 import { createSelection, type Selection } from './ui/selection';
@@ -160,6 +161,7 @@ const render = () => {
   notes.refresh();
   shop.refresh();
   motionControls.sync();
+  roomBar.sync();
 };
 
 store.subscribe((doc) => {
@@ -246,6 +248,10 @@ const interaction = attachInteraction({
     render();
   },
   setSnapNode,
+  setDims: (lines) => {
+    draftDims = lines;
+    updateDimensions(shown());
+  },
   onPin: (id) => notes.focus(id),
   onStatus: (msg, error) => toast(msg, error),
   onHover: (t) => voice.session.hover(t),
@@ -368,10 +374,11 @@ roomBtn.addEventListener('click', () => {
   if (!r.ok) return toast(r.error, true);
   const room = roomOf(store.doc);
   if (room) selection.set([{ node: room.id }]);
-  toast('Room added around the model. Click a wall to add a window or door there; orbit to look in.');
+  toast('Room added around the model. Add windows and doors from the bar above the view, then drag them into place; orbit to look in.');
 });
 top.draw.append(roomBtn);
 mountPropsPanel({ slot: top.draw, placeTool });
+const roomBar = mountRoomBar({ stage, store, selection, shown, editBlocked });
 mountInspector({
   parent: left,
   store,

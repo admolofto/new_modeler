@@ -10,6 +10,7 @@ import type { Doc } from '../model/schema';
 import type { Store } from '../model/store';
 import { UNITS_PER_INCH } from '../model/units';
 import { unclickableNodes } from '../model/visibility';
+import type { DimLine } from '../edit/dimensions';
 import type { Box3 } from '../model/world';
 import type { Overlay } from '../render/overlay';
 import { resolvePick } from '../render/pick';
@@ -17,6 +18,7 @@ import type { SceneSync } from '../render/sceneSync';
 import type { Viewport } from '../render/viewport';
 import { el } from './dom';
 import type { GizmoControl } from './gizmoControl';
+import { createOpeningDrag } from './openingDrag';
 import type { Selection } from './selection';
 import { fmt, shop } from './units';
 
@@ -30,7 +32,8 @@ import { fmt, shop } from './units';
  * undo step. A selected block's faces push and pull like handles too (on a 1/2" grid), and the
  * move / turn gizmo takes drags that start on it. Any other left-drag draws a selection box,
  * SketchUp-style: left to right takes the parts wholly inside it, right to left the parts it touches
- * (shift / ctrl adds). The camera is on the other buttons (render/viewport.ts). This is the Select
+ * (shift / ctrl adds). A room's windows, doors and openings slide along the walls when dragged, and
+ * resize by the grips on their edges (ui/openingDrag.ts). The camera is on the other buttons (render/viewport.ts). This is the Select
  * tool: while another tool is on (ui/tools.ts) it stays out of the way.
  */
 
@@ -49,6 +52,8 @@ export interface InteractionOptions {
   setDragPreview(doc: Doc | null): void;
   /** The part / assembly a drag snapped to (highlighted), or null. */
   setSnapNode(id: string | null): void;
+  /** Dimension lines for a room opening being dragged (null: back to the selection's). */
+  setDims(lines: DimLine[] | null): void;
   onPin(noteId: string): void;
   onStatus(msg: string, error?: boolean): void;
   /** Every hover change, including the point moved to within the same target (voice notes log these). */
@@ -118,6 +123,10 @@ export function attachInteraction(o: InteractionOptions): { cancelDrag(): boolea
   const box = el('div', { class: 'select-box' });
   box.style.display = 'none';
   document.body.append(el('style', {}, STYLE), label, box);
+
+  const openings = createOpeningDrag({ viewport, store: o.store, shown: o.shown, editBlocked: o.editBlocked, ...(o.posed && { posed: o.posed }), setDragPreview: o.setDragPreview, setDims: o.setDims, onStatus: o.onStatus });
+  /** How far the pointer's ray goes before it meets the model (a pin stops it at once). */
+  const clearTo = (p: ReturnType<typeof pick>) => (!p ? Infinity : 'pin' in p ? 0 : camera.position.distanceTo(p.world));
 
   let mouse = { x: 0, y: 0 };
   const setRay = (e: MouseEvent) => {
@@ -300,6 +309,13 @@ export function attachInteraction(o: InteractionOptions): { cancelDrag(): boolea
       }
       const p = pick(e);
       down = { x: e.clientX, y: e.clientY, pick: p, additive: e.shiftKey || e.ctrlKey || e.metaKey };
+      // A window, door or opening (or a grip on one): it slides or resizes.
+      if (openings.down(e, raycaster.ray, clearTo(p))) {
+        hover(null);
+        e.stopPropagation();
+        e.preventDefault();
+        return;
+      }
       const t = p && !('pin' in p) ? dragTarget(p) : null;
       if (!p || 'pin' in p || !t) return;
       const blocked = o.editBlocked();
@@ -397,8 +413,12 @@ export function attachInteraction(o: InteractionOptions): { cancelDrag(): boolea
       drag.moved = true;
       return updateDrag(e);
     }
+    if (openings.dragging) {
+      setRay(e);
+      return openings.move(e, raycaster.ray);
+    }
     if (o.gizmo?.dragging) return o.gizmo.move(e);
-    if (o.toolActive?.()) return; // the tool sets its own hover
+    if (o.toolActive?.()) return openings.clear(); // the tool sets its own hover
     if (down) {
       if (boxing || Math.hypot(e.clientX - down.x, e.clientY - down.y) > CLICK_PX) {
         hover(null);
@@ -409,6 +429,7 @@ export function attachInteraction(o: InteractionOptions): { cancelDrag(): boolea
     cancelAnimationFrame(hoverFrame);
     hoverFrame = requestAnimationFrame(() => {
       if (o.gizmo?.hover(e)) {
+        openings.clear();
         selection.setHover(null);
         canvas.style.cursor = 'grab';
         return;
@@ -422,11 +443,13 @@ export function attachInteraction(o: InteractionOptions): { cancelDrag(): boolea
         o.onHover?.(groundAt());
       }
       const grab = picked && dragTarget(picked);
-      canvas.style.cursor = p && 'pin' in p ? 'pointer' : grab && draggable(grab) ? 'grab' : '';
+      const opening = o.editBlocked() ? (openings.clear(), null) : openings.hover(e, raycaster.ray, clearTo(p));
+      canvas.style.cursor = p && 'pin' in p ? 'pointer' : (opening ?? (grab && draggable(grab) ? 'grab' : ''));
     });
   });
   canvas.addEventListener('pointerleave', () => {
     if (!drag) hover(null);
+    openings.clear();
   });
 
   window.addEventListener('pointerup', (e) => {
@@ -435,6 +458,10 @@ export function attachInteraction(o: InteractionOptions): { cancelDrag(): boolea
       const moved = drag.moved;
       endDrag(true);
       if (moved) return; // else it was a click: select below
+    }
+    if (openings.dragging && openings.end(true)) {
+      down = null;
+      return;
     }
     if (o.gizmo?.dragging) return o.gizmo.end(true);
     const d = down;
@@ -487,6 +514,11 @@ export function attachInteraction(o: InteractionOptions): { cancelDrag(): boolea
         down = null;
         return true;
       }
+      if (openings.dragging) {
+        down = null;
+        if (openings.end(false)) return true;
+      }
+      openings.clear();
       if (!drag) return false;
       endDrag(false);
       return true;
