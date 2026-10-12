@@ -9,6 +9,12 @@ export interface DispatchOptions {
   coalesce?: string;
 }
 
+/** A store's undo and redo steps, kept per design version while another version is open. */
+export interface History {
+  past: Doc[];
+  future: Doc[];
+}
+
 export interface Store {
   readonly doc: Doc;
   dispatch(ops: readonly Op[], opts?: DispatchOptions): OpResult;
@@ -18,6 +24,11 @@ export interface Store {
   canRedo(): boolean;
   /** Replaces the doc (e.g. file load) as an undoable step. */
   replace(doc: Doc): void;
+  /**
+   * Swaps in another doc with its own undo history (opening another design version): not an undo
+   * step. Returns the history it replaced, to hand back when switching back.
+   */
+  swap(doc: Doc, history?: History): History;
   subscribe(fn: (doc: Doc) => void): () => void;
 }
 
@@ -74,6 +85,15 @@ export function createStore(initial: Doc): Store {
     canRedo: () => future.length > 0,
     replace(next) {
       commit(next, null);
+    },
+    swap(next, history) {
+      const old: History = { past: past.splice(0), future };
+      past.push(...(history?.past ?? []));
+      future = [...(history?.future ?? [])];
+      coalesceKey = null;
+      doc = next;
+      emit();
+      return old;
     },
     subscribe(fn) {
       listeners.add(fn);

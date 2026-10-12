@@ -163,6 +163,8 @@ export interface TopBarOptions {
   app: HTMLElement;
   bar: HTMLElement;
   store: Store;
+  /** File › New / Open / Save when something else owns them (design versions: every version goes in the file). */
+  files?: { newModel(): void; openFile(): Promise<void>; saveFile(): void };
 }
 
 export interface TopBar {
@@ -223,11 +225,13 @@ export function mountTopBar(o: TopBarOptions): TopBar {
   const undoBtn = button('ghost icon', 'Undo (Ctrl+Z)', icon('undo'));
   const redoBtn = button('ghost icon', 'Redo (Ctrl+Shift+Z)', icon('redo'));
   newBtn.addEventListener('click', () => {
+    if (o.files) return o.files.newModel();
     if (!store.doc.roots.length) return;
     store.replace(emptyDoc());
     toast('Started a new model. Undo brings the last one back.');
   });
   openBtn.addEventListener('click', async () => {
+    if (o.files) return o.files.openFile();
     try {
       const doc = await pickFile();
       if (doc) store.replace(doc);
@@ -235,7 +239,7 @@ export function mountTopBar(o: TopBarOptions): TopBar {
       toast(`Couldn't open that file: ${(err as Error).message}`, true);
     }
   });
-  const saveModel = () => downloadFile(store.doc);
+  const saveModel = () => (o.files ? o.files.saveFile() : downloadFile(store.doc));
   saveBtn.addEventListener('click', saveModel);
   undoBtn.addEventListener('click', () => store.undo());
   redoBtn.addEventListener('click', () => store.redo());

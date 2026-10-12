@@ -4,7 +4,7 @@ import type { Recipe } from '../model/recipes';
 import type { Doc } from '../model/schema';
 import { modelSnapshot, savedRecipes } from './context';
 import { SYSTEM_PROMPT } from './prompt';
-import { runTool, toolDefs, type Question, type ToolState } from './tools';
+import { runTool, toolDefs, type Question, type ToolState, type VersionHost } from './tools';
 
 /**
  * One chat turn: send the request, run tool calls against a draft doc, loop until the model
@@ -59,6 +59,8 @@ export interface TurnOptions {
   maxSteps?: number;
   /** The user's saved recipe library: catalogued in the snapshot, used by the recipe tools. */
   recipes?: (() => readonly Recipe[]) | undefined;
+  /** The app's design versions, for new_version. */
+  versions?: VersionHost | undefined;
 }
 
 export const MAX_TOKENS = 32000;
@@ -100,7 +102,7 @@ export async function runTurn(opts: TurnOptions): Promise<TurnResult> {
   content.push({ type: 'text', text: opts.text });
   chat.messages.push({ role: 'user', content });
 
-  const state: ToolState = { draft: doc, ops: [], recipes: opts.recipes };
+  const state: ToolState = { draft: doc, ops: [], recipes: opts.recipes, versions: opts.versions };
   const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
   let text = '';
   const maxSteps = opts.maxSteps ?? 16;

@@ -64,6 +64,7 @@ import { fmt, units } from './ui/units';
 import { mountVoicePanel } from './ui/voicePanel';
 import { mountReferences } from './ui/references/mount';
 import { mountSidePanel } from './ui/sidePanel';
+import { mountVersions } from './ui/versions';
 
 const byId = (id: string) => {
   const e = document.getElementById(id);
@@ -85,7 +86,19 @@ const blockDraft = createBlockDraft(viewport.scene, viewport.renderer);
 const gizmo = createGizmo(viewport);
 const selection = createSelection();
 const recipeLibrary = browserRecipeLibrary();
-const proposals = createProposals(store, { recipes: () => recipeLibrary.read() });
+// Design versions (v1, v2…): tabs over the view to flip between alternatives; the open one is the store's doc.
+const versions = mountVersions({
+  stage, store,
+  blocked: () => (proposals.pending ? 'Accept or reject the AI’s proposed change before switching versions.' : null),
+  capture: () => {
+    try {
+      return viewport.capture(400).data;
+    } catch {
+      return null;
+    }
+  },
+});
+const proposals = createProposals(store, { recipes: () => recipeLibrary.read(), versions });
 
 /** On screen: a drag in progress, else a pending AI proposal, else the store's doc. */
 let aiPreview: Preview | null = null;
@@ -173,7 +186,7 @@ store.subscribe((doc) => {
   saveLocalSoon(doc);
 });
 mountToasts(stage);
-const top = mountTopBar({ app, bar, store });
+const top = mountTopBar({ app, bar, store, files: versions });
 mountSketchUp({
   slot: top.file, store, selection, editBlocked,
   onImported: (doc, ids) => {
@@ -489,4 +502,4 @@ window.addEventListener('keydown', (e) => {
   e.preventDefault();
 });
 
-if (import.meta.env.DEV) Object.assign(window, { __modeler: { store, scene: viewport.scene, sceneSync, selection, proposals, viewport, voice, shop, notes, units, blockTool, splitTool, placeTool, tools, gizmo: gizmoCtl, isolation, player, present, plan } });
+if (import.meta.env.DEV) Object.assign(window, { __modeler: { store, scene: viewport.scene, sceneSync, selection, proposals, viewport, voice, shop, notes, units, blockTool, splitTool, placeTool, tools, gizmo: gizmoCtl, isolation, player, present, plan, versions } });

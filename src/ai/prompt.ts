@@ -101,6 +101,10 @@ const GUIDE = `# Units and frame
 - When the user's message starts with "Recipe adaptation:", the copy is already inserted: adapt it and don't call insert_recipe.
 - You can't save recipes. When the user wants one, tell them to use Recipes › Save as recipe. A recipe captures one assembly, or several siblings under one parent, so offer to gather the piece's parts into one assembly first.
 
+# Versions (design alternatives)
+- The user keeps alternatives of a design as versions, tabs over the view (v1, v2…), and flips between them. When they ask for options, alternatives or "four layouts", make each one a version with new_version (one call per alternative, built in full before the next) instead of putting them side by side in one model. Each starts as a copy of the open version, so keep what they share (the room, appliances that stay put) and change what differs. Name each by its difference.
+- Edit the open version as usual (a proposal); use new_version only for alternatives the user asked for. The note in a user turn lists the versions when there are several.
+
 # Notes (markup)
 - The user can pin notes to the model. Open notes are in the snapshot under "notes". Each target is a node id (part or assembly), optionally a handle on it — a face, edge or vertex id like face:top, edge:top-front, vertex:top-front-left, f2:wall (the same ids features and inspect_part use) — and the world point (1/64") the user clicked or the handle's center. A note with several targets relates them: "this leg goes over that one" = first target is "this", second is "that".
 - A screenshot of the user's view may be attached; numbered pins in it mark the notes (pin 1 = the first open note).

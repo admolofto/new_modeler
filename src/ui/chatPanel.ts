@@ -564,6 +564,7 @@ export function mountChatPanel(
       images,
       signal,
       recipes: proposals.recipes,
+      versions: proposals.versions,
       onEvent: (e) => (e.type === 'text' ? add('ai', e.text) : e.questions ? showQuestions(e.questions) : add(`tool${e.ok ? '' : ' bad'}`, e.summary)),
     });
     if (r.stop === 'refusal') add('err', 'The model declined this request.');

@@ -1,6 +1,6 @@
 import { modelSnapshot, savedRecipes } from '../ai/context';
 import { diffDocs, type DocDiff } from '../ai/diff';
-import { runTool, TOOL_GET_MODEL, type ToolOutcome, type ToolState } from '../ai/tools';
+import { runTool, TOOL_GET_MODEL, type ToolOutcome, type ToolState, type VersionHost } from '../ai/tools';
 import { applyOps, type Op } from '../model/ops';
 import type { Recipe } from '../model/recipes';
 import type { Doc } from '../model/schema';
@@ -32,6 +32,8 @@ export interface Proposals {
   runTool(name: string, input: unknown): ToolOutcome;
   /** The user's saved recipe library, if the app has one (reading it may throw). */
   readonly recipes: (() => readonly Recipe[]) | undefined;
+  /** The app's design versions, for the AI's new_version. */
+  readonly versions: AppVersions | undefined;
   accept(): boolean;
   reject(): void;
   /** One-shot note for the next chat turn about what happened to the last proposal. */
@@ -46,11 +48,20 @@ export interface Proposals {
 export interface ProposalOptions {
   /** The user's saved recipes, for the AI's recipe catalog and tools. */
   recipes?: () => readonly Recipe[];
+  /** The app's design versions (ui/versions.ts). */
+  versions?: AppVersions;
+}
+
+export interface AppVersions extends VersionHost {
+  /** The versions for the AI, in a line; empty while there's only one. */
+  describe(): string;
 }
 
 export function createProposals(store: Store, options: ProposalOptions = {}): Proposals {
   let pending: Proposal | null = null;
   let note: string | undefined;
+  /** The version the AI's new_version started (MCP calls arrive one at a time); a new chat turn starts on the open one. */
+  let building: ToolState['building'];
   const listeners = new Set<() => void>();
   const toolListeners = new Set<(name: string, out: ToolOutcome) => void>();
   const emit = () => listeners.forEach((fn) => fn());
@@ -71,6 +82,7 @@ export function createProposals(store: Store, options: ProposalOptions = {}): Pr
     },
     working,
     recipes: options.recipes,
+    versions: options.versions,
     add(ops, draft) {
       if (!ops.length) return;
       const base = pending && !pending.stale ? pending.ops : [];
@@ -79,11 +91,16 @@ export function createProposals(store: Store, options: ProposalOptions = {}): Pr
     },
     runTool(name, input) {
       let out: ToolOutcome;
-      if (name === TOOL_GET_MODEL) {
+      const built = building && options.versions?.doc(building.id);
+      if (name === TOOL_GET_MODEL && building && built) {
+        const status = `You are building version ${building.label}, a separate design alternative (not a proposal); the model below is that version.`;
+        out = { content: `${status}\n<model>\n${modelSnapshot(built, savedRecipes(options.recipes))}\n</model>`, isError: false, summary: `read ${building.label}` };
+      } else if (name === TOOL_GET_MODEL) {
         out = { content: `${self.status()}\n<model>\n${modelSnapshot(working(), savedRecipes(options.recipes))}\n</model>`, isError: false, summary: 'read the model' };
       } else {
-        const state: ToolState = { draft: working(), ops: [], recipes: options.recipes };
+        const state: ToolState = { draft: working(), ops: [], recipes: options.recipes, versions: options.versions, building };
         out = runTool(state, name, input);
+        building = state.building;
         self.add(state.ops, state.draft);
       }
       toolListeners.forEach((fn) => fn(name, out));
@@ -109,16 +126,20 @@ export function createProposals(store: Store, options: ProposalOptions = {}): Pr
       emit();
     },
     takeNote() {
+      building = undefined;
+      const versions = options.versions?.describe();
       if (pending && !pending.stale) {
-        return 'Your last proposal has not been accepted yet. The snapshot includes it; changes you make now are added to the same proposal.';
+        return [versions, 'Your last proposal has not been accepted yet. The snapshot includes it; changes you make now are added to the same proposal.'].filter(Boolean).join(' ');
       }
       const n = note;
       note = undefined;
-      return n;
+      return [versions, n].filter(Boolean).join(' ') || undefined;
     },
     status() {
-      if (pending && !pending.stale) return `A proposal of ${pending.ops.length} ops is pending (not yet accepted); the model below includes it and new changes add to it.`;
-      return note ?? 'No proposal is pending.';
+      const versions = options.versions?.describe();
+      const head = versions ? `${versions} ` : '';
+      if (pending && !pending.stale) return `${head}A proposal of ${pending.ops.length} ops is pending (not yet accepted); the model below includes it and new changes add to it.`;
+      return head + (note ?? 'No proposal is pending.');
     },
     subscribe(fn) {
       listeners.add(fn);

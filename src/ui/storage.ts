@@ -32,22 +32,42 @@ export function saveLocalSoon(doc: Doc): void {
   }, 250);
 }
 
+/** Writes the doc now (switching design versions can't wait for the debounce). */
+export function saveLocalNow(doc: Doc): void {
+  clearTimeout(timer);
+  try {
+    localStorage.setItem(KEY, serialize(doc));
+  } catch (err) {
+    console.warn('autosave failed', err);
+  }
+}
+
 export function downloadFile(doc: Doc, name = 'model.modeler.json'): void {
-  const url = URL.createObjectURL(new Blob([serialize(doc)], { type: 'application/json' }));
+  downloadText(serialize(doc), name);
+}
+
+export function downloadText(text: string, name = 'model.modeler.json'): void {
+  const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
   const a = Object.assign(document.createElement('a'), { href: url, download: name });
   a.click();
   URL.revokeObjectURL(url);
 }
 
 /** Opens a file picker; resolves to the loaded doc (throws ModelError on a bad file) or null if cancelled. */
-export function pickFile(): Promise<Doc | null> {
+export async function pickFile(): Promise<Doc | null> {
+  const text = await pickFileText();
+  return text === null ? null : deserialize(text);
+}
+
+/** Opens a file picker for a model file; resolves to its text, or null if cancelled. */
+export function pickFileText(): Promise<string | null> {
   return new Promise((resolve, reject) => {
     const input = Object.assign(document.createElement('input'), { type: 'file', accept: '.json,application/json' });
     input.onchange = async () => {
       const file = input.files?.[0];
       if (!file) return resolve(null);
       try {
-        resolve(deserialize(await file.text()));
+        resolve(await file.text());
       } catch (err) {
         reject(err);
       }

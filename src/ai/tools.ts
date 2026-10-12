@@ -97,6 +97,7 @@ export const TOOL_GET_RECIPE = 'get_recipe';
 export const TOOL_INSERT_RECIPE = 'insert_recipe';
 export const TOOL_FIT_ROOM = 'fit_room';
 export const TOOL_ASK = 'ask_user';
+export const TOOL_NEW_VERSION = 'new_version';
 
 const Question = z.object({
   question: z.string().trim().min(1).max(400),
@@ -201,6 +202,16 @@ export function toolDefs(): Tool[] {
       })),
     },
     {
+      name: TOOL_NEW_VERSION,
+      description:
+        'Starts a new version: a design alternative the user flips to from the version tabs over the view (v1, v2…). It starts as a ' +
+        'copy of the version the user has open, as accepted (or of `from`, e.g. "v2"). The user stays where they are; your next changes ' +
+        'this turn (apply_ops, insert_recipe, fit_room) build the new version directly instead of proposing changes to the open one, until ' +
+        'you call new_version again. Use it when the user asks for alternatives, options or several layouts: one call per alternative, ' +
+        'each built in full before the next. name: 1–3 words for what differs ("L-shape", "8 ft island"); summary: one line about it.',
+      input_schema: jsonSchema(z.object({ name: z.string().trim().min(1).max(40), summary: z.string().trim().max(200).optional(), from: z.string().optional() })),
+    },
+    {
       name: TOOL_ASK,
       description:
         'Asks the user clarifying questions in the chat. Use it before building when you are unsure about something that changes ' +
@@ -249,6 +260,20 @@ export interface ToolState {
   ops: Op[];
   /** The user's saved recipe library; may throw when browser storage can't be read. */
   recipes?: (() => readonly Recipe[]) | undefined;
+  /** Where new_version makes design alternatives; absent = the tool isn't available here. */
+  versions?: VersionHost | undefined;
+  /** The version new_version started: changes build it instead of `draft`. */
+  building?: { id: string; label: string } | undefined;
+}
+
+/** The app's design versions, as new_version sees them. */
+export interface VersionHost {
+  /** Adds a version copied from the open one (or `from`); throws with a reason the AI can act on. */
+  start(name: string, summary?: string, from?: string): { id: string; label: string };
+  /** A version's doc as it is now; undefined once it's gone. */
+  doc(id: string): Doc | undefined;
+  /** Saves a version's doc. */
+  save(id: string, doc: Doc): void;
 }
 
 export interface ToolOutcome {
@@ -647,7 +672,41 @@ function askTool(input: unknown): ToolOutcome {
   };
 }
 
+const NewVersionInput = z.object({ name: z.string().trim().min(1).max(40), summary: z.string().trim().max(200).optional(), from: z.string().optional() });
+
+function newVersionTool(state: ToolState, input: unknown): ToolOutcome {
+  if (!state.versions) return { content: 'Versions aren’t available here; make the change on the model.', isError: true, summary: '✗ versions unavailable' };
+  const r = NewVersionInput.safeParse(input);
+  if (!r.success) return { content: `Rejected: ${z.prettifyError(r.error)}`, isError: true, summary: '✗ new_version: bad input' };
+  try {
+    state.building = state.versions.start(r.data.name, r.data.summary, r.data.from);
+  } catch (err) {
+    return { content: `No version made: ${(err as Error).message}`, isError: true, summary: `✗ new version: ${(err as Error).message}` };
+  }
+  const { label } = state.building;
+  return {
+    content: `Started ${label}. It's a copy of ${r.data.from ?? 'the open version'}; your next changes build it, and the user can open it from its tab now. Build it in full, then start the next alternative with new_version.`,
+    isError: false,
+    summary: `Started version ${label}`,
+  };
+}
+
+/**
+ * Runs one AI tool. After new_version, tools work on that version's doc and save it there; the
+ * open version's proposal (`draft` / `ops`) is left alone.
+ */
 export function runTool(state: ToolState, name: string, input: unknown): ToolOutcome {
+  if (name === TOOL_NEW_VERSION) return newVersionTool(state, input);
+  const b = state.building;
+  const doc = b && state.versions?.doc(b.id);
+  if (!b || !doc || name === TOOL_ASK) return runOn(state, name, input);
+  const sub: ToolState = { draft: doc, ops: [], recipes: state.recipes };
+  const out = runOn(sub, name, input);
+  if (sub.ops.length) state.versions!.save(b.id, sub.draft);
+  return { ...out, summary: `${b.label}: ${out.summary}` };
+}
+
+function runOn(state: ToolState, name: string, input: unknown): ToolOutcome {
   if (name === TOOL_APPLY) return applyTool(state, input);
   if (name === TOOL_INSPECT) return inspectTool(state, input);
   if (name === TOOL_CUT_LIST) return { content: cutListText(cutList(state.draft)), isError: false, summary: 'read the cut list' };
