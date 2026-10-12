@@ -8,6 +8,7 @@ import type { Doc } from '../model/schema';
 import type { Recipe } from '../model/recipes';
 import type { Target } from '../edit/targets';
 import { createRecipeAdaptation } from './recipeAdaptation';
+import { fileBlock, imageUrl, MAX_IMAGES, readChatFile, transferFiles, type ChatFile } from './chatFiles';
 import { el } from './dom';
 import { icon } from './icons';
 import { MARKDOWN_STYLE, renderMarkdown } from './markdown';
@@ -21,6 +22,8 @@ import type { Proposals } from './proposals';
  *   come back to this tab through the MCP bridge.
  * - Codex: runs a local app-server on your Codex login and uses the same model tools.
  * - API: the in-browser agent loop through the local proxy (needs ANTHROPIC_API_KEY).
+ * Pictures and text files ride along with a message: the attach button, pasting (Ctrl+V) or dropping
+ * them on the chat adds them (chatFiles.ts), and the attach menu can add a picture of the 3D view.
  * Either way the AI's changes land in the shared proposal (proposals.ts), shown tinted violet in
  * the viewport until accepted. Sending another message while a proposal is pending refines it.
  * When the AI is unsure it asks (ask_user): its questions show with answers to pick, and the
@@ -84,6 +87,8 @@ const STYLE = `
 .chat .user .nlist { margin: 2px -4px 0; }
 .chat .user .shot { display: flex; align-items: center; gap: 4px; margin-top: 2px; color: var(--fg-2); font-size: var(--fs-xs); }
 .chat .user .shot svg { width: 12px; height: 12px; }
+.chat .user .thumbs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.chat .user .thumbs img { max-width: 120px; max-height: 90px; border-radius: 6px; object-fit: cover; }
 .chat .ai { align-self: flex-start; max-width: 100%; }
 .chat .working { display: flex; align-items: center; gap: 8px; align-self: flex-start; padding: 4px 0; color: var(--fg-2); font-size: var(--fs-sm); }
 .chat .working-dots { display: flex; gap: 3px; }
@@ -118,6 +123,30 @@ const STYLE = `
 .chat .compose .attached { max-height: 220px; margin: -2px -2px 6px; padding-bottom: 6px; overflow-y: auto; border-bottom: 1px solid var(--line-2); }
 .chat .compose > textarea { display: block; width: 100%; min-height: 40px; max-height: 180px; padding: 0 2px; border: 0; background: none; box-shadow: none; }
 .chat .compose .row { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.chat .compose .files { display: flex; flex-wrap: wrap; gap: 6px; margin: -2px -2px 6px; }
+.chat .compose .files[hidden] { display: none; }
+.chat .compose .chip { position: relative; display: flex; align-items: center; gap: 6px; max-width: 100%; height: 48px; padding: 0 22px 0 4px;
+  border: 1px solid var(--line-2); border-radius: 8px; background: var(--bg-2, #0002); font-size: var(--fs-xs); color: var(--fg-2); }
+.chat .compose .chip img { width: 40px; height: 40px; border-radius: 5px; object-fit: cover; }
+.chat .compose .chip > svg { width: 18px; height: 18px; margin: 0 2px 0 6px; flex: none; }
+.chat .compose .chip span { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat .compose .chip button { position: absolute; top: 2px; right: 2px; display: grid; place-items: center; width: 18px; height: 18px; padding: 0;
+  border: 0; border-radius: 50%; background: none; color: var(--fg-3); cursor: pointer; }
+.chat .compose .chip button:hover { background: var(--hover); color: var(--fg); }
+.chat .compose .chip button svg { width: 12px; height: 12px; }
+.chat .compose .attach { position: relative; }
+.chat .compose .menu { position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 5; display: grid; min-width: 200px; padding: 4px;
+  border: 1px solid var(--line-2); border-radius: 8px; background: var(--panel, #1d1f23); box-shadow: 0 6px 20px #0008; }
+.chat .compose .menu[hidden] { display: none; }
+.chat .compose .menu button { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 0; border-radius: 6px; background: none;
+  color: var(--fg); font-size: var(--fs-sm); text-align: left; cursor: pointer; }
+.chat .compose .menu button:hover { background: var(--hover); }
+.chat .compose .menu button svg { width: 16px; height: 16px; }
+.chat .compose .menu small { padding: 4px 8px 2px; color: var(--fg-3); font-size: var(--fs-xs); }
+.chat { position: relative; }
+.chat .dropzone { position: absolute; inset: 6px; z-index: 10; display: none; place-items: center; border: 2px dashed var(--ai); border-radius: 12px;
+  background: #15161acc; color: var(--fg); font-size: var(--fs-sm); pointer-events: none; }
+.chat.dragging .dropzone { display: grid; }
 .chat .compose .status { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-3); font-size: var(--fs-xs); }
 .chat .ask { display: grid; gap: 10px; padding: 10px 12px; border: 1px solid #8b7bff66; border-radius: 10px; }
 .chat .ask h4 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: var(--fs-sm); font-weight: 600; }
@@ -188,6 +217,10 @@ export function mountChatPanel(
   let attached = 0;
   /** The camera was turned on because notes arrived (it turns off again once they're gone). */
   let autoShot = false;
+  /** A picture of the 3D view goes with the next message. */
+  let shot = false;
+  /** Pictures and text files going with the next message. */
+  let files: ChatFile[] = [];
   /** The AI's open questions (ask_user): the answers picked go with the next message. */
   let asking: { questions: Question[]; picked: (string | undefined)[]; buttons: HTMLButtonElement[]; hint: HTMLElement } | null = null;
 
@@ -288,21 +321,26 @@ export function mountChatPanel(
   const card = el('div', { class: 'card', role: 'region', 'aria-label': 'Proposed change' });
 
   const input = el('textarea', { rows: 2, placeholder: 'Describe a piece or a change…', 'aria-label': 'Message to the AI' });
-  const shotBtn = el('button', { class: 'btn ghost icon sm', title: 'Include a picture of the 3D view (numbered pins mark your notes)', 'aria-pressed': 'false' }, icon('camera'));
+  const attachBtn = el('button', { class: 'btn ghost icon sm', type: 'button', title: 'Add pictures or files (or paste / drop them here)', 'aria-label': 'Add files', 'aria-haspopup': 'menu', 'aria-expanded': 'false' }, icon('paperclip'));
+  const pickBtn = el('button', { type: 'button', role: 'menuitem' }, icon('file'), 'Upload pictures or files…');
+  const viewBtn = el('button', { type: 'button', role: 'menuitem' }, icon('camera'), 'Picture of the 3D view');
+  const menu = el('div', { class: 'menu', role: 'menu', hidden: true }, pickBtn, viewBtn, el('small', {}, 'Tip: paste (Ctrl+V) or drop pictures here too.'));
+  const fileInput = el('input', { type: 'file', multiple: true, hidden: true, accept: 'image/*,.txt,.md,.csv,.tsv,.json,.xml,.svg,.dae,.obj,.yaml,.yml' });
+  const filesSlot = el('div', { class: 'files', role: 'group', 'aria-label': 'Files going with the next message', hidden: true });
   const status = el('span', { class: 'status' });
   const sendBtn = el('button', { class: 'btn ai sm' });
   const notesSlot = el('div', { class: 'attached', role: 'group', 'aria-label': 'Notes going with the next message', hidden: true });
   const recipeSlot = el('div', { class: 'attached', role: 'group', 'aria-label': 'Recipe going with the next message', hidden: true });
-  const compose = el('div', { class: 'compose' }, recipeSlot, notesSlot, input, el('div', { class: 'row' }, shotBtn, status, sendBtn));
-  parent.append(
-    el(
-      'div',
-      { class: 'chat' },
+  const compose = el('div', { class: 'compose' }, recipeSlot, notesSlot, filesSlot, input,
+    el('div', { class: 'row' }, el('div', { class: 'attach' }, attachBtn, menu), fileInput, status, sendBtn));
+  const chatEl = el('div', { class: 'chat' });
+  parent.append(chatEl);
+  chatEl.append(
       el('header', {}, el('div', { class: 'bar' }, engineSel, modelSel, helpBtn, newChatBtn), el('div', { class: 'bar' }, effortSel, modelLabel)),
       chatView,
       card,
       compose,
-    ),
+      el('div', { class: 'dropzone' }, 'Drop to attach to your message'),
   );
 
   const scroll = () => (chatView.scrollTop = chatView.scrollHeight);
@@ -314,7 +352,39 @@ export function mountChatPanel(
   const add = (cls: string, text: string) => put(el('div', { class: `msg ${cls}` }, cls === 'ai' ? renderMarkdown(text) : text));
 
   function showPlaceholder() {
-    input.placeholder = asking ? 'Type an answer…' : attached ? 'Add a message (optional)…' : 'Describe a piece or a change…';
+    input.placeholder = asking ? 'Type an answer…' : attached || files.length || shot ? 'Add a message (optional)…' : 'Describe a piece or a change…';
+  }
+
+  /** Pictures and files waiting to go with the next message, each with a remove button. */
+  function showFiles() {
+    const chip = (body: (Node | string)[], label: string, remove: () => void) => {
+      const x = el('button', { type: 'button', title: `Remove ${label}`, 'aria-label': `Remove ${label}` }, icon('x'));
+      x.addEventListener('click', () => { remove(); showFiles(); input.focus(); });
+      return el('div', { class: 'chip', title: label }, ...body, x);
+    };
+    filesSlot.replaceChildren(
+      ...(shot ? [chip([icon('camera'), el('span', {}, 'Picture of the 3D view')], 'picture of the 3D view', () => { autoShot = false; shot = false; })] : []),
+      ...files.map((f) => chip(f.kind === 'image' ? [el('img', { src: imageUrl(f.image), alt: '' }), el('span', {}, f.name)] : [icon('file'), el('span', {}, f.name)],
+        f.name, () => (files = files.filter((g) => g !== f)))),
+    );
+    filesSlot.hidden = !shot && !files.length;
+    showPlaceholder();
+  }
+  /** Reads files from the button, a paste or a drop; anything the AI can't take is explained in the chat. */
+  async function addFiles(list: readonly File[]) {
+    for (const file of list) {
+      try {
+        const f = await readChatFile(file);
+        if (f.kind === 'image' && files.filter((g) => g.kind === 'image').length + (shot ? 1 : 0) >= MAX_IMAGES) {
+          add('err', `Up to ${MAX_IMAGES} pictures go with one message.`);
+          break;
+        }
+        files.push(f);
+      } catch (err) {
+        add('err', (err as Error).message);
+      }
+    }
+    showFiles();
   }
 
   /** The AI's questions, with its suggested answers to pick (one question: picking sends it). */
@@ -538,12 +608,12 @@ export function mountChatPanel(
     const typed = input.value.trim();
     const answers = answersText();
     const ids = notes?.pending() ?? [];
-    if ((!typed && !answers && !ids.length) || running) return;
+    if ((!typed && !answers && !ids.length && !files.length && !shot) || running) return;
     let prepared: ReturnType<typeof recipes.prepare> = null;
     let images: ImageAttachment[];
     try {
       if (recipes.context && proposals.pending?.stale) throw new Error('Discard the stale recipe proposal before sending another message.');
-      images = shotBtn.getAttribute('aria-pressed') === 'true' ? [capture()] : [];
+      images = [...(shot ? [capture()] : []), ...files.flatMap((f) => (f.kind === 'image' ? [f.image] : []))];
       prepared = recipes.prepare();
     } catch (err) {
       add('err', (err as Error).message);
@@ -553,11 +623,19 @@ export function mountChatPanel(
     if (prepared) {
       try { onRecipePrepared?.(prepared.doc, [prepared.wrapperId]); } catch { /* Preview remains usable if camera framing fails. */ }
     }
+    const sent = files;
+    const viewShot = shot;
+    files = [];
+    shot = autoShot = false;
+    showFiles();
     input.value = '';
     grow();
     closeQuestions();
     const said = [answers, typed].filter(Boolean).join('\n\n');
-    const text = [...(recipes.context ? [recipes.context] : []), ...(ids.length ? [notesRequest(ids)] : []), ...(said ? [said] : [])].join('\n\n');
+    const texts = sent.flatMap((f) => (f.kind === 'text' ? [fileBlock(f.name, f.text)] : []));
+    const text = [...(recipes.context ? [recipes.context] : []), ...(ids.length ? [notesRequest(ids)] : []), ...(said ? [said] : []), ...texts].join('\n\n')
+      || (sent.length > 1 ? 'See the attached pictures.' : 'See the attached picture.');
+    const thumbs = sent.flatMap((f) => (f.kind === 'image' ? [el('img', { src: imageUrl(f.image), alt: f.name, title: f.name })] : []));
     log.querySelector('.welcome')?.remove();
     log.append(
       el(
@@ -566,11 +644,13 @@ export function mountChatPanel(
         ...(said ? [said] : []),
         ...(prepared ? [el('div', { class: 'shot' }, `Recipe: ${prepared.name}`)] : []),
         ...(notes && ids.length ? [notes.send(ids)] : []),
-        ...(images.length ? [el('div', { class: 'shot' }, icon('camera'), 'with a picture of the view')] : []),
+        ...(viewShot ? [el('div', { class: 'shot' }, icon('camera'), 'with a picture of the view')] : []),
+        ...sent.filter((f) => f.kind === 'text').map((f) => el('div', { class: 'shot' }, icon('file'), f.name)),
+        ...(thumbs.length ? [el('div', { class: 'thumbs' }, ...thumbs)] : []),
       ),
     );
     scroll();
-    const note = [proposals.takeNote(), ...(images.length ? [viewNote?.()] : [])].filter(Boolean).join(' ') || undefined;
+    const note = [proposals.takeNote(), ...(viewShot ? [viewNote?.()] : [])].filter(Boolean).join(' ') || undefined;
 
     const ctrl = new AbortController();
     setRunning(ctrl);
@@ -612,11 +692,51 @@ export function mountChatPanel(
     }
   });
   sendBtn.addEventListener('click', () => (running ? running.abort() : void submit()));
-  const shotOn = () => shotBtn.getAttribute('aria-pressed') === 'true';
-  const setShot = (on: boolean) => shotBtn.setAttribute('aria-pressed', String(on));
-  shotBtn.addEventListener('click', () => {
+  const setShot = (on: boolean) => { shot = on; showFiles(); };
+  const showMenu = (open: boolean) => { menu.hidden = !open; attachBtn.setAttribute('aria-expanded', String(open)); };
+  attachBtn.addEventListener('click', () => showMenu(attachBtn.getAttribute('aria-expanded') !== 'true'));
+  document.addEventListener('pointerdown', (e) => { if (!menu.hidden && !(e.target as Element).closest?.('.chat .attach')) showMenu(false); });
+  menu.addEventListener('keydown', (e) => { if (e.key === 'Escape') { showMenu(false); attachBtn.focus(); } });
+  pickBtn.addEventListener('click', () => { showMenu(false); fileInput.click(); });
+  viewBtn.addEventListener('click', () => {
+    showMenu(false);
     autoShot = false;
-    setShot(!shotOn());
+    setShot(true);
+    input.focus();
+  });
+  fileInput.addEventListener('change', () => {
+    const picked = [...(fileInput.files ?? [])];
+    fileInput.value = '';
+    void addFiles(picked);
+  });
+  // Pasting a picture into the message box attaches it; pasted text still pastes as text.
+  input.addEventListener('paste', (e) => {
+    const pasted = transferFiles(e.clipboardData);
+    if (!pasted.length) return;
+    e.preventDefault();
+    void addFiles(pasted);
+  });
+  // Dropping files anywhere on the chat attaches them.
+  let dragDepth = 0;
+  const hasFiles = (e: DragEvent) => !!e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+  chatEl.addEventListener('dragenter', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dragDepth++;
+    chatEl.classList.add('dragging');
+  });
+  chatEl.addEventListener('dragover', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    e.dataTransfer!.dropEffect = 'copy';
+  });
+  chatEl.addEventListener('dragleave', () => { if (--dragDepth <= 0) ((dragDepth = 0), chatEl.classList.remove('dragging')); });
+  chatEl.addEventListener('drop', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dragDepth = 0;
+    chatEl.classList.remove('dragging');
+    void addFiles(transferFiles(e.dataTransfer));
   });
   newChatBtn.addEventListener('click', () => {
     chat = newChat();
@@ -647,7 +767,7 @@ export function mountChatPanel(
     setNoteAttachments: (a) => void (notes = a),
     notesChanged(n) {
       // Notes are numbered like the pins, so a picture of the view goes with them unless turned off.
-      if (n && !attached && !shotOn()) {
+      if (n && !attached && !shot) {
         autoShot = true;
         setShot(true);
       } else if (!n && autoShot) {

@@ -95,7 +95,7 @@ export function aiProxy(env: Record<string, string | undefined>): Plugin {
     if (raw === undefined) return [];
     const ok = (x: unknown): x is ImageAttachment =>
       !!x && typeof x === 'object' && ['image/jpeg', 'image/png'].includes((x as ImageAttachment).mediaType) && typeof (x as ImageAttachment).data === 'string';
-    if (!Array.isArray(raw) || raw.length > 4 || !raw.every(ok)) throw new Error('images must be up to 4 {mediaType, data} JPEG/PNG');
+    if (!Array.isArray(raw) || raw.length > 8 || !raw.every(ok)) throw new Error('images must be up to 8 {mediaType, data} JPEG/PNG');
     if (raw.reduce((n, x) => n + x.data.length, 0) > 8_000_000) throw new Error('images too large');
     return raw.map(({ mediaType, data }) => ({ mediaType, data }));
   };
