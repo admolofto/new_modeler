@@ -252,6 +252,25 @@ follows the selected provider. The terminal MCP endpoint is `/mcp`.
 
 ## Sharing the app
 
+### On someone else's Windows PC
+
+Send them `scripts/windows/Install Modeler.cmd` (one file) and have them
+double-click it. It downloads `modeler.ps1` from this repo's `main` into
+`%LOCALAPPDATA%\Modeler`, installs Node.js with winget if it's missing, downloads
+the app, installs its packages, puts a **Modeler** shortcut on the desktop and
+opens the app. The AI chat uses their own Claude Code (or Codex) login, so
+they need Claude Code installed and signed in.
+
+Every time the shortcut runs it checks GitHub for a newer `main`, downloads it
+if there is one (their `.env.local` and packages stay), reinstalls packages
+only when `package-lock.json` changed, then starts the server in a minimized
+window and opens the browser. So shipping an update is just pushing to
+`main`; they get it the next time they open Modeler. Closing the minimized
+"Modeler" window stops the app. Problems are logged to
+`%LOCALAPPDATA%\Modeler\modeler.log`.
+
+### As a web link
+
 The app can run as a web link, so someone else only needs a browser.
 `npm run build:vercel` writes Vercel's prebuilt layout to `.vercel/output`:
 the static app plus one function for the AI (`server/hosted.ts`). Connect the
