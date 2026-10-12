@@ -34,6 +34,8 @@ export interface SplitToolOptions {
   view?(doc: Doc): Doc;
   setDims(lines: DimLine[] | null): void;
   setSnapNode(id: string | null): void;
+  /** The Measurements box (ui/tools.ts): what's being sized, and its size. */
+  measure?(label: string, value: string): void;
   onStatus(msg: string, error?: boolean): void;
 }
 
@@ -99,6 +101,7 @@ export function attachSplitTool(o: SplitToolOptions): SplitTool {
     };
     o.setDims([along(piece(0, s)), along(piece(s, size[k]))]);
     o.setSnapNode(node);
+    o.measure?.(AXIS_NAMES[k]![0]!.toUpperCase() + AXIS_NAMES[k]!.slice(1), typed ? `${typed}▌` : fmt(s));
     at = s;
     if (!e) return;
     const prompt = typed ? ` · ${AXIS_NAMES[k]}: ${typed}▌` : '';
@@ -178,7 +181,7 @@ export function attachSplitTool(o: SplitToolOptions): SplitTool {
       if (!part?.block) return o.onStatus('Select one block to split it.', true);
       id = part.id;
       k = 0;
-      o.onStatus('Split: click where to cut (Tab: split another way; type a width and Enter). Esc to stop.');
+      o.onStatus('');
     } else {
       id = null;
       o.onStatus('');

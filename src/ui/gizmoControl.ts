@@ -21,7 +21,7 @@ import { fmt, shop } from './units';
  * that axis, the square to slide along the floor plane, a ring to turn — each snapping to what's
  * nearby (against a neighbor, in line with it, centered on it, the floor; edit/snap.ts) or the grid
  * (1/2" for blocks, else 1/16"; turns in 15° steps). Alt = 1/64" or 1°, no snapping. Hold Ctrl as
- * the drag starts to move a copy instead. Previews live; release commits one undo step. R / Shift+R
+ * the drag starts to move a copy instead. Previews live; release commits one undo step. ] / [
  * turns a quarter turn about the vertical; Ctrl+D drops a copy alongside (repeat for a row).
  */
 
@@ -305,9 +305,9 @@ export function attachGizmo(o: GizmoControlOptions): GizmoControl {
     if ((e.ctrlKey || e.metaKey) && k === 'd') {
       e.preventDefault();
       duplicate();
-    } else if (!e.ctrlKey && !e.metaKey && k === 'r') {
+    } else if (!e.ctrlKey && !e.metaKey && (k === ']' || k === '[')) {
       e.preventDefault();
-      turn(e.shiftKey ? -90 : 90);
+      turn(k === ']' ? 90 : -90);
     }
   });
 

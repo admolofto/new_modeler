@@ -7,7 +7,7 @@ import { toast } from '../toast';
 import type { PresentSession } from './session';
 
 /**
- * "Present" (B1): a button in the top bar's view group and the P key start a presentation — the
+ * "Present" (B1): a button in the top bar's view group and Shift+P start a presentation — the
  * session itself loads on first use, like the glTF exporter. The editor is quiesced first (tools off,
  * drags cancelled, hover cleared, voice recording cancelled).
  */
@@ -38,7 +38,7 @@ export interface Present {
 export function mountPresent(o: PresentOptions): Present {
   const btn = el(
     'button',
-    { class: 'btn ghost', title: 'Present: a rendered view to walk clients through — click doors and drawers to open them (P)' },
+    { class: 'btn ghost', title: 'Present: a rendered view to walk clients through — click doors and drawers to open them (Shift+P)' },
     icon('present'),
     el('span', { class: 't' }, 'Present'),
   );
@@ -83,7 +83,7 @@ export function mountPresent(o: PresentOptions): Present {
   btn.addEventListener('click', () => void enter());
   window.addEventListener('keydown', (e) => {
     const t = e.target as HTMLElement;
-    if (e.defaultPrevented || e.repeat || e.ctrlKey || e.metaKey || e.altKey || e.key.toLowerCase() !== 'p') return;
+    if (e.defaultPrevented || e.repeat || !e.shiftKey || e.ctrlKey || e.metaKey || e.altKey || e.key.toLowerCase() !== 'p') return;
     if (t.closest?.('input, select, textarea, [contenteditable]')) return;
     e.preventDefault();
     void enter();

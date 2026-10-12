@@ -304,7 +304,7 @@ export function mountInspector(o: InspectorOptions): { focusNote(): void } {
             'div',
             { class: 'turn' },
             ...([90, -90] as const).map((deg) => {
-              const b = el('button', { class: 'btn sm', title: `A quarter turn ${deg > 0 ? 'to the left' : 'to the right'} (${deg > 0 ? 'R' : 'Shift+R'})` }, deg > 0 ? '↺ 90°' : '↻ 90°');
+              const b = el('button', { class: 'btn sm', title: `A quarter turn ${deg > 0 ? 'to the left' : 'to the right'} (${deg > 0 ? ']' : '['})` }, deg > 0 ? '↺ 90°' : '↻ 90°');
               b.addEventListener('click', () => spin(1, deg));
               return b;
             }),
@@ -695,7 +695,7 @@ export function mountInspector(o: InspectorOptions): { focusNote(): void } {
     const player = o.player;
     if (!player) return el('div', { class: 'play' }, ...extra);
     const label = el('span', {}, 'Open');
-    const btn = el('button', { class: 'btn sm open', title: 'Open or close it (O)' }, icon('play'), label);
+    const btn = el('button', { class: 'btn sm open', title: 'Open or close it (Shift+O)' }, icon('play'), label);
     btn.addEventListener('click', () => player.toggle([m.id]));
     const slider = el('input', { type: 'range', min: 0, max: 100, step: 1, value: '0', 'aria-label': 'How far open', title: 'How far open — just the view; the model stays closed' });
     slider.addEventListener('input', () => player.scrub(m.id, Number(slider.value) / 100));
@@ -929,7 +929,7 @@ export function mountInspector(o: InspectorOptions): { focusNote(): void } {
     what.addEventListener('input', () => editOps([{ op: 'update', id: part.id, patch: { name: what.value } }], `name:${part.id}`));
     const size = blockSize(part);
     return [
-      section('What is it?', what, el('div', { class: 'foot' }, 'The AI builds it from this and any notes on it — or point at it and talk (M).')),
+      section('What is it?', what, el('div', { class: 'foot' }, 'The AI builds it from this and any notes on it — or point at it and talk (V).')),
       section(
         'Block',
         ...SIZES.map(([label, param], k) =>

@@ -12,6 +12,36 @@ npm run dev
 
 Open the URL printed by Vite (normally `http://localhost:5173`).
 
+## Tools
+
+The tools, their keys and the way they work follow SketchUp. Pick one from the palette down the
+left of the 3D view or by its key; the line at the bottom left says what it wants next, and the
+**Measurements** box at the bottom right shows the value. Type a value at any time and press Enter
+— no need to click the box.
+
+| Key | Tool | How |
+|---|---|---|
+| Space | Select | Click a face, edge or corner; double-click the part; triple-click the whole piece; drag a box |
+| M | Move | Click a point on what moves, then where it goes. Ctrl: a copy. Then `3x` for a row, `/3` to space three |
+| Q | Rotate | Click the center, a point to turn from, then the angle. Ctrl: a copy |
+| P | Push/Pull | Click a face, move, click. Double-click another face to repeat the distance |
+| R | Rectangle | Draws a block: corner, corner, height (B works too) |
+| T | Tape Measure | Click two points |
+| E | Eraser | Click parts, or drag across several |
+| O / H / Z | Orbit / Pan / Zoom | With the left button. Shift+Z fits the whole model |
+
+- **Inference:** points land on corners (Endpoint, green), the middles of edges (Midpoint, cyan),
+  along edges (On Edge, red) and on faces (On Face, blue). Moves follow the red, green or blue axis
+  when the cursor is near one; → ← ↑ lock an axis, holding Shift keeps the one you're on.
+- **Values:** lengths as anywhere else (`24`, `3 1/2`, `2' 6"`, `18mm`), angles in degrees. Typing
+  one just after a move, turn or pull changes it; it's still one undo step.
+- **Camera:** middle-drag orbits (Shift: pans), right-drag pans, the wheel zooms toward the cursor,
+  whatever tool is on.
+- Move and Rotate act on the selection, or on the piece under the first click; a generated
+  cabinet moves whole. Esc backs out a step, then returns to Select.
+- Not SketchUp: there's no line, arc or offset drawing — parts are boards and blocks, not loose
+  faces. Voice notes are **V**, open / close is **Shift+O**, quarter turns are **]** and **[**.
+
 ## Recipes
 
 - Open **Recipes** in the toolbar, then **Save as recipe**. Save the whole model,
@@ -48,7 +78,7 @@ included.
   depth) and the time. The pivot and travel are worked out from the parts, so resizing
   keeps them right. To move several parts as one (a door's panel, rails and pull), click
   their folder in the model list first.
-- **▶ / the slider** in that section, **Open** in the toolbar, or **O** (the selection,
+- **▶ / the slider** in that section, **Open** in the toolbar, or **Shift+O** (the selection,
   else everything) open and close things. Open is a view: it isn't saved or undone, and
   the model stays closed. While anything is open the gizmo and face dragging are off;
   the settings still work, so you can change the angle and watch it.
@@ -96,7 +126,7 @@ included.
   windows and doors stay on their walls), each window's and door's wall, position, size, sill,
   style, hinge side and swing, and the walls', floor's, ceiling's, trim's, doors' and windows'
   finishes, and **Ceiling lights** (recessed cans in a grid: none, 2 × 2, 2 × 3…). Room doors
-  open like cabinet doors (**O**).
+  open like cabinet doors (**Shift+O**).
 - The AI makes or refits the room with its `fit_room` tool and edits windows and doors as the
   room's `openings`; it's told when a cabinet covers a window or blocks a door.
 
@@ -121,7 +151,7 @@ included.
 
 ## Presentation mode
 
-- **Present** in the toolbar (or **P**) shows the model full-window for a client: every
+- **Present** in the toolbar (or **Shift+P**) shows the model full-window for a client: every
   part in its finish (an **Auto** finish too, so the material's name decides the look),
   blocks as white massing, soft shadows on a warm studio floor. It shows the saved model,
   never a pending AI change, and the whole model even if a folder is isolated (hidden parts

@@ -16,8 +16,8 @@ import { targetLabel } from './labels';
 import type { Selection } from './selection';
 
 /**
- * Voice notes: press M (or the Talk button floating at the bottom of the 3D view), talk while
- * pointing at the model, press M again. Draft pins follow what you're talking about as you speak;
+ * Voice notes: press V (or the Talk button floating at the bottom of the 3D view), talk while
+ * pointing at the model, press V again. Draft pins follow what you're talking about as you speak;
  * when you stop, the selected AI tidies the notes and they're added like typed ones (one undo step), waiting
  * on the chat's message box. A caption by the cursor shows what's heard and what it's attaching
  * to; a chip above the button shows progress and results.
@@ -141,7 +141,7 @@ export function mountVoicePanel(parent: HTMLElement, o: VoicePanelOptions): Voic
   });
 
   // ── Talk button, status chip above it, caption by the cursor ─────────────
-  const mic = el('button', { class: `voice-btn${supported ? '' : ' off'}`, title: supported ? 'Voice notes: talk while pointing at the model (M)' : 'Voice notes need Chrome or Edge' });
+  const mic = el('button', { class: `voice-btn${supported ? '' : ' off'}`, title: supported ? 'Voice notes: talk while pointing at the model (V)' : 'Voice notes need Chrome or Edge' });
   mic.addEventListener('click', () => session.toggle());
   const chip = el('div', { class: 'voice-chip', role: 'status' });
   const dock = el('div', { class: 'voice-dock' }, chip, mic);
@@ -233,8 +233,8 @@ export function mountVoicePanel(parent: HTMLElement, o: VoicePanelOptions): Voic
       ...(session.stopping
         ? [el('span', { class: 'dot' }), 'Finishing…']
         : session.recording
-          ? [el('span', { class: 'dot' }), el('span', { class: 'clock' }, elapsed), 'Stop', el('kbd', {}, 'M')]
-          : [icon('mic'), 'Talk', el('kbd', {}, 'M')]),
+          ? [el('span', { class: 'dot' }), el('span', { class: 'clock' }, elapsed), 'Stop', el('kbd', {}, 'V')]
+          : [icon('mic'), 'Talk', el('kbd', {}, 'V')]),
     );
 
     if (session.status !== statusSeen) {
@@ -303,7 +303,7 @@ export function mountVoicePanel(parent: HTMLElement, o: VoicePanelOptions): Voic
     const target = e.target as HTMLElement;
     if (target.closest('input, select, textarea, [contenteditable]') || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
     const k = e.key.toLowerCase();
-    if (k === 'm') session.toggle();
+    if (k === 'v') session.toggle();
     else if (k === 'escape' && (session.recording || session.stopping)) session.cancel();
     else return;
     e.preventDefault();

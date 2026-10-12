@@ -30,7 +30,8 @@ import { fmt, shop } from './units';
  * undo step. A selected block's faces push and pull like handles too (on a 1/2" grid), and the
  * move / turn gizmo takes drags that start on it. Any other left-drag draws a selection box,
  * SketchUp-style: left to right takes the parts wholly inside it, right to left the parts it touches
- * (shift / ctrl adds). The camera is on the other buttons (render/viewport.ts).
+ * (shift / ctrl adds). The camera is on the other buttons (render/viewport.ts). This is the Select
+ * tool: while another tool is on (ui/tools.ts) it stays out of the way.
  */
 
 export interface InteractionOptions {
@@ -397,7 +398,7 @@ export function attachInteraction(o: InteractionOptions): { cancelDrag(): boolea
       return updateDrag(e);
     }
     if (o.gizmo?.dragging) return o.gizmo.move(e);
-    if (o.toolActive?.()) return selection.setHover(null);
+    if (o.toolActive?.()) return; // the tool sets its own hover
     if (down) {
       if (boxing || Math.hypot(e.clientX - down.x, e.clientY - down.y) > CLICK_PX) {
         hover(null);

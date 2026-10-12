@@ -7,8 +7,8 @@ import { toast } from './toast';
 import { units } from './units';
 
 /**
- * The top bar: file (new / open / save, plus what other modules add: SketchUp import / export), undo / redo, the
- * drawing tools, how the model is shown (dimension lines D, open / close O, inches ⇄ mm U), the tools other panels add
+ * The top bar: file (new / open / save, plus what other modules add: SketchUp import / export), undo / redo,
+ * how the model is shown (dimension lines D, open / close Shift+O, inches ⇄ mm U), the tools other panels add
  * (cut list), the keyboard list (?) and the side-panel toggles. View settings are
  * per-browser preferences, not model data.
  */
@@ -24,7 +24,7 @@ const CSS = `
 #topbar .tools { display: flex; align-items: center; gap: 2px; }
 #topbar .seg.units button { padding: 0 8px; }
 @media (max-width: 1320px) { #topbar .side.r .btn .t { display: none; } #topbar .side.r .btn:not(.icon) { padding: 0 7px; } }
-.help { top: 48px; right: 8px; width: 380px; max-height: calc(100vh - 64px); overflow-y: auto; font-size: var(--fs-sm); }
+.help { top: 48px; right: 8px; width: 400px; max-height: calc(100vh - 64px); overflow-y: auto; font-size: var(--fs-sm); }
 .help h4 { margin: 10px 0 4px; font-size: var(--fs-sm); color: var(--fg-2); font-weight: 600; }
 .help h4:first-child { margin-top: 0; }
 .help dl { display: grid; grid-template-columns: 118px 1fr; gap: 4px 10px; margin: 0; }
@@ -35,12 +35,31 @@ const CSS = `
 
 const HELP: [string, [string[], string][]][] = [
   [
+    'Tools (SketchUp’s keys)',
+    [
+      [['Space'], 'Select'],
+      [['M'], 'Move: click a point, then where it goes'],
+      [['Q'], 'Rotate: center, a point to turn from, the angle'],
+      [['P'], 'Push / Pull: click a face, move, click'],
+      [['R'], 'Rectangle: draw a block — corner, corner, height (also B)'],
+      [['T'], 'Tape measure: click two points'],
+      [['E'], 'Eraser: click parts, or drag across them'],
+      [['O', 'H', 'Z'], 'Orbit, pan, zoom with the left button'],
+      [['Type'], 'A value any time, then ⏎: 24 · 3 1/2 · 45 (no need to click a box)'],
+      [['→', '←', '↑'], 'Lock to the red, green or blue axis (again: let go)'],
+      [['Shift'], 'Hold to stay on the axis you’re following'],
+      [['Ctrl'], 'While moving or turning: a copy; then 3x for a row, /3 to space three'],
+      [['Esc'], 'Back out a step, then back to Select'],
+    ],
+  ],
+  [
     'Select',
     [
       [['Click'], 'The face, edge or corner under the cursor'],
       [['Double-click'], 'The whole part'],
       [['Triple-click'], 'The whole piece (cabinet, assembly)'],
       [['Shift', 'click'], 'Add to the selection'],
+      [['Ctrl', 'A'], 'Everything showing'],
       [['Tree'], 'Ctrl click: toggle a row; Shift click: every row between; right-click: hide, unclickable, isolate'],
       [['Drag'], 'Box: left→right takes parts inside, right→left parts touched'],
       [['Esc'], 'Clear the selection, cancel a drag'],
@@ -50,27 +69,20 @@ const HELP: [string, [string[], string][]][] = [
   [
     'Blocks',
     [
-      [['B'], 'Draw blocks: corner, corner, height'],
       [['Type'], 'Sizes while drawing: 24, 18 ⏎'],
       [['Drag'], 'A selected block’s face to push / pull it'],
       [['S'], 'Split the selected block (Tab: axis)'],
     ],
   ],
   [
-    'Move and turn',
+    'With the Select tool',
     [
-      [['Drag'], 'The gizmo’s arrows, square or rings'],
+      [['Drag'], 'The gizmo’s arrows, square or rings; a selected face or point to push / pull it'],
       [['Ctrl', 'drag'], 'Move a copy'],
       [['Ctrl', 'D'], 'Copy it alongside'],
-      [['R'], 'Quarter turn (Shift R: the other way)'],
-    ],
-  ],
-  [
-    'Edit',
-    [
-      [['Drag'], 'Push / pull a selected face or point'],
+      [[']', '['], 'Quarter turn, either way'],
       [['Alt', 'drag'], '1/64″ steps, no snapping'],
-      [['↑', '↓'], 'Nudge a length 1/16″ (Shift: 1″)'],
+      [['↑', '↓'], 'In a length box: nudge 1/16″ (Shift: 1″)'],
       [['Ctrl', 'Z'], 'Undo (Ctrl Shift Z or Ctrl Y: redo)'],
     ],
   ],
@@ -78,7 +90,7 @@ const HELP: [string, [string[], string][]][] = [
     'Notes and AI',
     [
       [['N'], 'Write a note about the selection'],
-      [['M'], 'Voice notes: talk while pointing, M to stop'],
+      [['V'], 'Voice notes: talk while pointing, V to stop'],
       [['Enter'], 'Send (Shift Enter: new line)'],
     ],
   ],
@@ -87,18 +99,19 @@ const HELP: [string, [string[], string][]][] = [
     [
       [['Middle-drag'], 'Orbit (Shift: pan)'],
       [['Right-drag'], 'Pan'],
-      [['Wheel'], 'Zoom'],
+      [['Wheel'], 'Zoom toward the cursor'],
+      [['Shift', 'Z'], 'Zoom extents: fit the whole model'],
       [['I'], 'Isolate the folder holding the selection (again: the whole model)'],
-      [['O'], 'Open / close the selection’s doors, drawers and lids (nothing selected: all of them)'],
+      [['Shift', 'O'], 'Open / close the selection’s doors, drawers and lids (nothing selected: all of them)'],
       [['D'], 'Dimension lines'],
       [['U'], 'Inches ⇄ millimetres'],
-      [['P'], 'Present: a rendered view for clients; click doors and drawers to open them (Esc leaves)'],
+      [['Shift', 'P'], 'Present: a rendered view for clients; click doors and drawers to open them (Esc leaves)'],
       [['L'], 'Cut list'],
       [['?'], 'This list'],
     ],
   ],
   [
-    'Presenting (P)',
+    'Presenting (Shift+P)',
     [
       [['Click'], 'Open or close the door, drawer or appliance under the cursor'],
       [['Double-click'], 'Fly in to that spot (walking: walk to it)'],
