@@ -2,7 +2,8 @@
  * Viewport colors. The panels use the same meanings (ui/theme.ts): amber = selected,
  * violet = what an AI proposal changes, red = notes, yellow = an opening door or drawer hitting something.
  * Hover stays blue so it never reads as selected.
- * The gizmo keeps the usual red / green / blue for x / y / z, and turns yellow under the cursor.
+ * Axes are SketchUp's: red = x (width), green = z (depth), blue = y (up). The gizmo, the tools' axis
+ * locks and their inference marks all use them; the gizmo turns yellow under the cursor.
  */
 export const PALETTE = {
   canvas: 0x1d1f23,
@@ -23,9 +24,16 @@ export const PALETTE = {
   blockFrontCss: '#d3d7dd',
   blockMark: 0x5d626b,
   axisX: 0xe5534b,
-  axisY: 0x6cc24a,
-  axisZ: 0x3d7df2,
+  axisY: 0x3d7df2,
+  axisZ: 0x6cc24a,
   gizmoHot: 0xffd84d,
+  /** Inference marks, as SketchUp colors them: a corner, the middle of an edge, along an edge, on a face. */
+  inferEndpoint: 0x4ccb5f,
+  inferMidpoint: 0x3ecbe8,
+  inferEdge: 0xe5534b,
+  inferFace: 0x3d7df2,
+  /** A tool's rubber band when it follows no axis. */
+  rubber: 0xe6e7e9,
   /** Floor grid (render/grid.ts): 1' lines, the bolder 4' lines, the axes through the origin. */
   gridMinor: 0x303338,
   gridMajor: 0x44474e,

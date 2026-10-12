@@ -278,7 +278,7 @@ export function mountChatPanel(
     return el(
       'div',
       { class: 'welcome' },
-      el('p', {}, 'Describe what to build or change — or press M and talk while pointing at the model. The AI’s changes show in violet until you accept them.'),
+      el('p', {}, 'Describe what to build or change — or press V and talk while pointing at the model. The AI’s changes show in violet until you accept them.'),
       el('div', { class: 'examples' }, ...examples),
     );
   }

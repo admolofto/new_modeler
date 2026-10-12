@@ -6,37 +6,45 @@ import { motionName } from './model/motion';
 import { demoDoc } from './model/defaults';
 import type { Doc } from './model/schema';
 import { createStore } from './model/store';
-import { hiddenNodes, isolateView, outsideOf } from './model/visibility';
+import { hiddenNodes, isolateView, outsideOf, unclickableNodes } from './model/visibility';
 import { createBlockDraft } from './render/blockDraft';
 import { createBlockLabels } from './render/blockLabels';
 import { createDimensionView } from './render/dimensions';
 import { createGizmo } from './render/gizmo';
 import { createOverlay, type OverlayItem } from './render/overlay';
 import { createSceneSync } from './render/sceneSync';
+import { createToolDraft } from './render/toolDraft';
 import { createViewport } from './render/viewport';
 import { frameNodes } from './render/frameNodes';
 import { connectBridge } from './ui/aiBridge';
 import { attachBlockTool } from './ui/blockTool';
 import { mountChatPanel, proxySend, type Preview } from './ui/chatPanel';
-import { el } from './ui/dom';
+import { eraserTool } from './ui/eraserTool';
 import { attachGizmo } from './ui/gizmoControl';
+import { createInference } from './ui/inference';
 import { attachSplitTool } from './ui/splitTool';
-import { icon } from './ui/icons';
 import { mountInspector } from './ui/inspector';
 import { attachInteraction } from './ui/interaction';
 import { mountIsolation } from './ui/isolation';
 import { mountMotionControls } from './ui/motionControls';
 import { createMotionPlayer } from './ui/motionPlayer';
+import { moveTool } from './ui/moveTool';
+import { navTools, zoomExtents } from './ui/navTools';
 import { mountNotes } from './ui/notes';
 import { mountOutline } from './ui/outline';
 import { createProposals } from './ui/proposals';
+import { pushPullTool } from './ui/pushPullTool';
 import { mountRecipesPanel } from './ui/recipesPanel';
+import { rotateTool } from './ui/rotateTool';
 import { browserRecipeLibrary } from './ui/recipeStorage';
 import { createSelection, type Selection } from './ui/selection';
 import { mountShopPanel } from './ui/shopPanel';
 import { loadLocal, saveLocalSoon } from './ui/storage';
+import { tapeTool } from './ui/tapeTool';
 import { mountTheme } from './ui/theme';
 import { mountToasts, toast } from './ui/toast';
+import type { ToolContext } from './ui/toolKit';
+import { mountTools } from './ui/tools';
 import { mountSketchUp } from './ui/sketchup';
 import { mountGltfExport } from './ui/gltf';
 import { mountTopBar } from './ui/topbar';
@@ -74,7 +82,7 @@ let draftDims: DimLine[] | null = null;
 const aiOutside = (p: Preview | null, id: string) => !!p && (!p.doc.assemblies[id] || outsideOf(p.doc, id, p.highlight).length > 0);
 const isolation = mountIsolation({
   viewport, store, stage, selection,
-  toolActive: () => blockTool.active || splitTool.active,
+  toolActive: () => tools.active !== 'select',
   blocked: (id) => (aiOutside(aiPreview, id) ? 'The AI’s proposed change reaches outside this folder. Accept or reject it first.' : null),
 });
 /** The model on screen, every folder showing; `shown` is what's drawn (an isolated folder only). */
@@ -148,7 +156,7 @@ mountSketchUp({
   },
 });
 mountGltfExport({ slot: top.file, store });
-const outline = mountOutline({ parent: left, stage, store, selection, shown, editBlocked, isolation, startBlocks: () => blockTool.toggle(true) });
+const outline = mountOutline({ parent: left, stage, store, selection, shown, editBlocked, isolation, startBlocks: () => tools.set('rectangle') });
 const chat = mountChatPanel(
   right,
   proposals,
@@ -196,7 +204,7 @@ const gizmoCtl = attachGizmo({
   shown,
   view,
   editBlocked,
-  toolActive: () => blockTool.active || splitTool.active,
+  toolActive: () => tools.active !== 'select',
   posed: () => player.anyOpen,
   setDragPreview: (doc) => {
     dragPreview = doc;
@@ -223,7 +231,7 @@ const interaction = attachInteraction({
   onStatus: (msg, error) => toast(msg, error),
   onHover: (t) => voice.session.hover(t),
   ignorePins: () => voice.session.recording,
-  toolActive: () => blockTool.active || splitTool.active,
+  toolActive: () => tools.active !== 'select',
   posed: () => player.anyOpen,
   gizmo: gizmoCtl,
 });
@@ -245,6 +253,7 @@ const blockTool = attachBlockTool({
     updateDimensions(shown());
   },
   setSnapNode,
+  measure: (label, value) => tools.measure(label, value),
   onStatus: (msg, error) => toast(msg, error),
 });
 const splitTool = attachSplitTool({
@@ -260,22 +269,57 @@ const splitTool = attachSplitTool({
     updateDimensions(shown());
   },
   setSnapNode,
+  measure: (label, value) => tools.measure(label, value),
   onStatus: (msg, error) => toast(msg, error),
 });
-// One tool at a time; drawing works on the closed model.
-blockTool.subscribe(() => {
-  if (!blockTool.active) return;
-  splitTool.toggle(false);
-  player.closeAll();
-});
-splitTool.subscribe(() => {
-  if (splitTool.active) {
-    blockTool.toggle(false);
-    player.closeAll();
-  }
+// One tool at a time (ui/tools.ts), picked from the palette or by SketchUp's keys.
+const tools = mountTools({ stage, viewport, selection });
+const toolCtx: ToolContext = {
+  store,
+  selection,
+  tools,
+  infer: createInference(viewport, sceneSync),
+  draft: createToolDraft(viewport.scene, viewport.renderer),
+  view,
+  editBlocked,
+  setPreview: (doc) => {
+    dragPreview = doc;
+    render();
+  },
+  setSnapNode,
+  onStatus: (msg, error) => toast(msg, error),
+};
+tools.add(
+  { id: 'select', name: 'Select', keys: [' '], icon: 'pointer', hint: 'Click a face, edge or corner; double-click for the part, triple-click for the whole piece. Drag a box around several.' },
+  eraserTool(toolCtx),
+  {
+    id: 'rectangle', name: 'Rectangle', keys: ['r'], icon: 'box', edits: true, external: true,
+    title: 'Rectangle: draw a block — a corner, the opposite corner, then pull it up',
+    hint: 'Click a corner on the floor or a face, the opposite corner, then the height. Type sizes any time: 24, 18 Enter.',
+    enter: () => (blockTool.toggle(true), blockTool.active),
+    exit: () => blockTool.toggle(false),
+  },
+  pushPullTool(toolCtx),
+  moveTool(toolCtx),
+  rotateTool(toolCtx),
+  tapeTool(toolCtx),
+  ...navTools(viewport),
+  {
+    id: 'split', name: 'Split', keys: [], edits: true, external: true,
+    hint: 'Click where to cut (Tab: split another way), or type a width and Enter. It keeps cutting what’s left.',
+    enter: () => (splitTool.toggle(true), splitTool.active),
+    exit: () => splitTool.toggle(false),
+  },
+);
+tools.action({ icon: 'extents', title: 'Zoom Extents: fit the whole model in the view (Shift+Z)', run: () => zoomExtents(viewport, shown()) });
+blockTool.subscribe(() => tools.report('rectangle', blockTool.active));
+splitTool.subscribe(() => tools.report('split', splitTool.active));
+tools.subscribe(() => {
+  // Drawing, moving and erasing work on the closed model.
+  if (tools.editing) player.closeAll();
   gizmoCtl.sync();
 });
-const motionControls = mountMotionControls({ slot: top.view, player, shown: modelShown, selection, toolActive: () => blockTool.active || splitTool.active });
+const motionControls = mountMotionControls({ slot: top.view, player, shown: modelShown, selection, toolActive: () => tools.editing });
 player.onMove(() => {
   const doc = shown();
   sceneSync.pose(doc, player.amount);
@@ -283,15 +327,6 @@ player.onMove(() => {
   overlay.setItems(overlayItems(doc, selection));
 });
 player.subscribe(() => gizmoCtl.sync());
-const blockBtn = el('button', { class: 'btn ghost', title: 'Draw blocks: rough placeholders you then tell the AI about (B)' }, icon('box'), el('span', { class: 't' }, 'Block'));
-blockBtn.addEventListener('click', () => blockTool.toggle());
-top.draw.append(blockBtn);
-const syncBlockBtn = () => {
-  blockBtn.setAttribute('aria-pressed', String(blockTool.active));
-  gizmoCtl.sync();
-};
-blockTool.subscribe(syncBlockBtn);
-syncBlockBtn();
 mountInspector({
   parent: left,
   store,
@@ -331,12 +366,21 @@ render();
 
 window.addEventListener('keydown', (e) => {
   const target = e.target as HTMLElement;
-  if (target.closest('input, select, textarea') || !(e.ctrlKey || e.metaKey)) return;
+  if (target.closest('input, select, textarea') || e.altKey) return;
   const key = e.key.toLowerCase();
-  if (key === 'z' && !e.shiftKey) store.undo();
+  if (!(e.ctrlKey || e.metaKey)) {
+    // Shift+Z: SketchUp's Zoom Extents.
+    if (!e.shiftKey || key !== 'z') return;
+    zoomExtents(viewport, shown());
+  } else if (key === 'z' && !e.shiftKey) store.undo();
   else if (key === 'y' || (key === 'z' && e.shiftKey)) store.redo();
-  else return;
+  else if (key === 'a') {
+    // Select all: every part that's showing and clickable.
+    const doc = shown();
+    const skip = new Set([...hiddenNodes(doc), ...unclickableNodes(doc)]);
+    selection.set(Object.keys(doc.parts).filter((id) => !skip.has(id)).map((node) => ({ node })));
+  } else return;
   e.preventDefault();
 });
 
-if (import.meta.env.DEV) Object.assign(window, { __modeler: { store, scene: viewport.scene, sceneSync, selection, proposals, viewport, voice, shop, notes, units, blockTool, splitTool, gizmo: gizmoCtl, isolation, player } });
+if (import.meta.env.DEV) Object.assign(window, { __modeler: { store, scene: viewport.scene, sceneSync, selection, proposals, viewport, voice, shop, notes, units, blockTool, splitTool, tools, gizmo: gizmoCtl, isolation, player } });

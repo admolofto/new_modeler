@@ -470,7 +470,7 @@ export function mountOutline(o: OutlineOptions): Outline {
       {},
       closeStart,
       el('h2', {}, 'Start a piece'),
-      el('p', {}, 'Describe what you want to build to the AI — for example “36″ base cabinet, two drawers, 3/4 ply” — or sketch rough blocks (B) and tell the AI what each one is.'),
+      el('p', {}, 'Describe what you want to build to the AI — for example “36″ base cabinet, two drawers, 3/4 ply” — or sketch rough blocks (R) and tell the AI what each one is.'),
       el('div', { class: 'acts' }, blockOut, addCabinet, loadExample),
     ),
   );

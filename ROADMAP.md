@@ -242,6 +242,22 @@ Part = {
   - **glTF export** (`render/gltfExport.ts`, toolbar **glTF**): `.glb`, meters, closed, a clip per motion with the easing baked in, plus "Open all"
   - Eval: `npm run eval -- -t animation` (carcass drawer over doors; a hand-built frame-and-panel door hinged on its folder; a door beside a wall clears or is reported). Not run live yet
 
+## SketchUp-style tools
+
+**Goal:** someone who knows SketchUp can sit down and model: the same tools on the same keys, click-move-click, inference, a Measurements box you just type into.
+
+- **Status: built (2026-10-09).** Notes:
+  - **One tool at a time** (`ui/tools.ts`): a palette down the left of the 3D view, a status line (bottom left) and the Measurements box (bottom right). The manager owns the pointer (press, moves, release, and whether it was a drag — so click-move-click and press-drag-release both work), the tool keys, Esc (back out a step, then to Select) and typing. Blocks and Split keep their own pointer handling and report on / off; `toolActive` everywhere is now "the tool isn't Select"
+  - **Keys are SketchUp's:** Space select, M move, Q rotate, P push / pull, R rectangle (the block tool; B still works), T tape, E eraser, O / H / Z orbit / pan / zoom, Shift+Z zoom extents; the wheel zooms toward the cursor. Moved to make room: voice notes M → **V**, open / close O → **Shift+O**, quarter turns R / Shift+R → **]** / **[**. Ctrl+A selects everything showing
+  - **Axes are SketchUp's colors:** red = x, green = z (depth), blue = y (up) — the gizmo's green and blue swapped
+  - **Point inference** (`ui/inference.ts`): Endpoint / Midpoint / On Edge / On Face from the parts' declared handles (rule 12), nearest on screen first, hidden ones skipped, what's being moved looked through. `render/toolDraft.ts` draws the marks, rubber bands and the protractor
+  - **Move** (`ui/moveTool.ts`): the selection, else the piece under the first click (`gizmoNodes`: a generated part moves its cabinet). The grabbed point lands on corners, midpoints and edges; else it follows an axis the cursor is near (10 px), else slides on the floor plane through it with the gizmo's box snapping (`inferMove`). Faces under the cursor are ignored on purpose: with walls and cabinets behind almost every move, "On Face" would fling things about. → ← ↑ lock an axis, Shift holds the current one, Ctrl copies, `3x` / `/3` after a copy make a row (`edit/array.ts`)
+  - **Rotate** (`ui/rotateTool.ts`): center, a point to turn from, the angle; 15° steps (Alt: 1°) or exactly onto a corner / edge. The protractor lies flat unless an arrow key stands it up (SketchUp aligns it to the hovered face; here nearly every turn is about the upright axis)
+  - **Push / Pull** (`ui/pushPullTool.ts`): any flat face with a linear drive, no selecting first — the same drives as dragging a selected face, so cabinet faces resize the cabinet. Double-click repeats the last distance
+  - **Typed values amend:** a value typed just after a move, turn or pull undoes that step and re-applies it from the same starting doc (`amend` in `ui/toolKit.ts`), so it stays one undo step
+  - **Tape** measures point to point (no guides: the model has no construction geometry). **Eraser** deletes parts; a folder whose parts are all swept goes whole (`edit/erase.ts`)
+  - **Not built:** Line / Arc / Circle / Offset (parts are shape + features, not loose faces — see Risks), Scale (push / pull each face), Paint Bucket, guides, standard views. The Select tool's gizmo and click-a-face-then-drag still work as before
+
 ## Phase 5 — Later
 
 - Mobile/touch viewing and markup
@@ -295,5 +311,6 @@ Part = {
 - **Phase 4 (built)** makes it shop-ready: joints cut real dados / rabbets, a joinery-aware cut list (CSV + print) with sheet / board-foot / cost estimates, a material library, inch ⇄ mm display, dimension lines, and snap-to-align / match-size while dragging.
 - **UI (built):** docked top bar / model list + settings / AI panel, one design system where color means selected, AI or note, true fractions for lengths.
 - **Blockout (built):** sketch placeholder blocks in three clicks (B), move / turn anything with a gizmo at any angle, copy and split runs, then hover and talk — the AI builds each block's real piece in its space.
-- **Animations (built):** hinge / slide presets work out pivots and travel from the parts; carcass drawers and new carcass doors come animated; open things with O, check what they hit, export them to glTF.
+- **Animations (built):** hinge / slide presets work out pivots and travel from the parts; carcass drawers and new carcass doors come animated; open things with Shift+O, check what they hit, export them to glTF.
+- **SketchUp-style tools (built):** Select, Move, Rotate, Push/Pull, Rectangle, Tape and Eraser on SketchUp's keys, with point and axis inference, arrow-key locks, copies in rows and a Measurements box you type into.
 - **No CAD kernel** unless a real part needs one; it would slot in as another builder.

@@ -89,7 +89,7 @@ export function mountAiHelp(parent: HTMLElement): { open(engine: Engine, config:
       el('section', {}, el('h3', {}, 'Chat controls'), el('dl', {},
         el('dt', {}, 'Model'), el('dd', {}, 'Choose a model beside the provider menu. Default uses the provider’s configured model. Codex supplies its catalog; Claude Code offers family aliases. API and custom choices use an exact model ID supported by your account. Your choice is remembered per provider. Changing models starts a fresh AI conversation and keeps your accepted geometry.'),
         el('dt', {}, 'Camera'), el('dd', {}, 'Include the current 3D view with your next message. Numbered pins show your notes.'),
-        el('dt', {}, 'Talk / M'), el('dd', {}, 'Talk while pointing at parts. Press M again to finish, then send the notes to the AI. Voice capture needs a supported browser, such as Chrome or Edge.'),
+        el('dt', {}, 'Talk / V'), el('dd', {}, 'Talk while pointing at parts. Press V again to finish, then send the notes to the AI. Voice capture needs a supported browser, such as Chrome or Edge.'),
         el('dt', {}, 'Stop'), el('dd', {}, 'Stop the current request. Any changes already proposed remain available for review.'),
         el('dt', {}, 'New chat'), el('dd', {}, 'The + button starts a new AI conversation. Switching providers also starts a fresh conversation. Your accepted model stays.'),
       )),

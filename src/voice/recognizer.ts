@@ -47,7 +47,7 @@ export const speechSupported = (): boolean => !!speechCtor();
 
 const MESSAGES: Record<Exclude<RecError, 'other'>, string> = {
   unsupported: 'Voice notes need Chrome or Edge.',
-  'not-allowed': 'The microphone is blocked. Allow it from the site settings in the address bar, then press M again.',
+  'not-allowed': 'The microphone is blocked. Allow it from the site settings in the address bar, then press V again.',
   'no-mic': 'No microphone found.',
   network: "Couldn't reach the speech service. Voice notes need Chrome or Edge (other browsers built on Chromium often lack it).",
 };

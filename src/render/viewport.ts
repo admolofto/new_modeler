@@ -37,7 +37,10 @@ export function createViewport(container: HTMLElement): Viewport {
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.target.set(18, 17, 12);
   controls.enableDamping = true;
-  // Left-drag is box select (ui/interaction.ts); middle orbits (Shift: pans), right pans, the wheel zooms.
+  // The wheel zooms toward what's under the cursor, as in SketchUp.
+  controls.zoomToCursor = true;
+  // Left-drag is box select (ui/interaction.ts) or the camera tool that's on (ui/navTools.ts); middle orbits
+  // (Shift: pans), right pans, the wheel zooms.
   controls.mouseButtons = { LEFT: null, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: THREE.MOUSE.PAN };
   controls.update();
   // No browser autoscroll on a middle press.

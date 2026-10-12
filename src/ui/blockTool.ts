@@ -18,7 +18,7 @@ import type { Selection } from './selection';
 import { fmt, parse, shop } from './units';
 
 /**
- * The block tool (B): sketch a placeholder block in three clicks, SketchUp-style — a corner, the
+ * The block tool (R as SketchUp's rectangle, or B): sketch a placeholder block in three clicks — a corner, the
  * opposite corner, then how far it comes up (or out, on a wall). It draws on the floor or on any flat
  * face under the cursor, in that face's part's frame, so a block drawn on a turned block turns with
  * it and comes out of the face. Corners and heights snap to other parts (edit/snap.ts), else a 1/2"
@@ -44,6 +44,8 @@ export interface BlockToolOptions {
   /** Dimension lines for what's being drawn (null: back to normal). */
   setDims(lines: DimLine[] | null): void;
   setSnapNode(id: string | null): void;
+  /** The Measurements box (ui/tools.ts): what's being sized, and its size. */
+  measure?(label: string, value: string): void;
   onStatus(msg: string, error?: boolean): void;
 }
 
@@ -200,6 +202,8 @@ export function attachBlockTool(o: BlockToolOptions): BlockTool {
     return '';
   };
   const size = (b: Box3) => [0, 1, 2].map((k) => b.max[k]! - b.min[k]!);
+  /** The Measurements box shows what's typed, else the size under the cursor. */
+  const measure = (label: string, value: string) => o.measure?.(label, typed ? `${typed}▌` : value);
   const clearFeedback = () => {
     o.draft.set(null);
     o.setPreview(null);
@@ -216,6 +220,7 @@ export function attachBlockTool(o: BlockToolOptions): BlockTool {
     if (phase.kind === 'idle') {
       o.setPreview(null);
       o.setDims(null);
+      measure('Dimensions', '');
       const under = planeUnder(doc);
       if (!under || 'reason' in under) {
         o.draft.set(null);
@@ -243,6 +248,7 @@ export function attachBlockTool(o: BlockToolOptions): BlockTool {
       o.setDims(frameBoxDimensions(pl.frame, rect));
       o.setSnapNode(s.nodes[0] ?? null);
       const sz = size(rect);
+      measure('Dimensions', `${fmt(sz[w]!)}, ${fmt(sz[other]!)}`);
       return show(e, [`${fmt(sz[w]!)} × ${fmt(sz[other]!)}`, 'click the opposite corner', ...s.labels].join(' · '));
     }
     // Height: the closest point on the line out of the rectangle's middle.
@@ -277,6 +283,7 @@ export function attachBlockTool(o: BlockToolOptions): BlockTool {
     o.setSnapNode(node);
     o.setDims(frameBoxDimensions(pl.frame, box));
     o.draft.set({ rect: corners(pl, phase.first, phase.second) });
+    measure(pl.k === 1 ? 'Height' : 'Depth', fmt(h));
     if (r.ok) {
       pending = { id, ops };
       o.setPreview(r.doc);
@@ -358,7 +365,7 @@ export function attachBlockTool(o: BlockToolOptions): BlockTool {
     clearFeedback();
     label.style.display = 'none';
     canvas.style.cursor = on ? 'crosshair' : '';
-    o.onStatus(on ? 'Blocks: click a corner on the floor or a face, the opposite corner, then the height. Type sizes any time; Esc to stop.' : '');
+    o.onStatus('');
     if (on && last) update(last);
     listeners.forEach((fn) => fn());
   }
