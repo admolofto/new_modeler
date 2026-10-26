@@ -243,6 +243,13 @@ Hidden entities and entities on hidden tags are left out of a `.skp` import.
   make (a closet rod) stays in it as drawn; a group it can't build (doors over drawers,
   more than two doors) stays as imported. A 3/4"–3" slab with its top 28"–46" up, lying
   on cabinets, becomes a **Countertop** of slab stock.
+- **Rooms are recognized:** each space the walls close in becomes one of the app's rooms,
+  its walls off (the wall pieces are its walls): its floor (running under its walls, so the
+  cutaway leaves no gaps), ceiling, finishes and lighting. Walls within 1" of meeting
+  count as meeting; an L- or T-shaped space stays one room, its biggest rectangle plus
+  **annexes** of floor and ceiling. The one with a countertop is the **Kitchen**, one under
+  40 sq ft without cabinets a **Closet**, the rest **Room 1, 2…**, biggest first. The 2D
+  plan labels each with its name and area.
 - A wall piece moves and turns like a cabinet; push / pull its end, top or faces for its
   length, height and thickness; click a face for **Add window / door / opening here**. The
   2D plan draws it hatched with its doors' swings, and the cutaway steps it aside like a

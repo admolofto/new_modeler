@@ -401,6 +401,25 @@ describe('the room generator', () => {
   });
 });
 
+describe('room annexes (an imported house)', () => {
+  it('lays more floor and ceiling over its annexes; pushing any ceiling still sets the height', () => {
+    const annex = { left: I(144), right: I(200), back: 0, front: I(60) };
+    const d = roomDoc({ walls: [], baseboard: null, annexes: [annex, { left: -I(6), right: 0, back: 0, front: I(120), underWall: true }] });
+    const boxes = worldBoxes(d);
+    expect(boxes.get('room.floor-annex-1')).toEqual({ min: [I(144), -I(1.5), 0], max: [I(200), 0, I(60)] });
+    expect(boxes.get('room.ceiling-annex-1')).toEqual({ min: [I(144), I(96), 0], max: [I(200), I(97.5), I(60)] });
+    expect(boxes.get('room.floor-annex-2')!.min[0]).toBe(-I(6));
+    // No walls of its own, so no baseboards or wall parts.
+    expect(Object.keys(d.parts).filter((id) => /wall|baseboard/.test(id))).toEqual([]);
+    const shell = roomShell(d);
+    expect(shell.floors).toEqual(['room.floor', 'room.floor-annex-1', 'room.floor-annex-2']);
+    expect(shell.ceilings.map((c) => c.min)).toEqual([[0, 0], [I(144), 0], [-I(6), 0]]);
+    const hd = handleDrives(d, { node: 'room.ceiling-annex-1', handle: 'face:bottom' })!;
+    expect(driveOps(d, 'room.ceiling-annex-1', dragChanges(hd, [0, I(12), 0]))).toEqual([{ op: 'update', id: 'room', patch: { params: { height: I(108) } } }]);
+    expect(fails(emptyDoc(), [addRoom({ annexes: [{ left: I(10), right: I(5), back: 0, front: I(10) }] })])).toMatch(/an annex is \{left, right, back, front\}/);
+  });
+});
+
 describe('recessed cans (phase 7)', () => {
   it('are off by default, and an even grid of unclickable lights under the ceiling when set', () => {
     expect(paramsOf(roomDoc()).cans).toBeNull();

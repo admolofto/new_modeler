@@ -77,6 +77,18 @@ export interface RoomParams {
   /** Recessed ceiling lights in an even grid (null: none). */
   cans: RoomCans | null;
   finishes: RoomFinishes;
+  /** More of its floor and ceiling, joined to it (an L-shaped room's other leg): no walls of their own. */
+  annexes?: RoomAnnex[];
+}
+
+/** A rectangle of floor and ceiling, its edges' room coordinates like the room's inside faces. */
+export interface RoomAnnex {
+  left: number;
+  right: number;
+  back: number;
+  front: number;
+  /** Under a wall (so no gap shows when the cutaway takes the wall away): not the room's floor area. */
+  underWall?: true;
 }
 
 export interface RoomCans {
@@ -369,9 +381,16 @@ export const roomSchema = z
         windows: Finish.default(() => ({ ...ROOM_FINISHES.windows })),
       })
       .default(() => structuredClone(ROOM_FINISHES)),
+    // Checked by hand: as plain objects they'd cost the AI's tool schemas ~400 characters it doesn't need.
+    annexes: z.array(z.custom<RoomAnnex>(isAnnex, 'an annex is {left, right, back, front} in whole 1/64", left < right and back < front')).max(64).optional(),
   })
   .superRefine((p, ctx) => roomChecks(p as ParsedRoom, ctx))
   .transform((p) => fillOpeningIds(p as ParsedRoom));
+
+function isAnnex(a: unknown): a is RoomAnnex {
+  const r = a as RoomAnnex | null;
+  return !!r && typeof r === 'object' && [r.left, r.right, r.back, r.front].every(Number.isInteger) && r.right > r.left && r.front > r.back && (r.underWall === undefined || r.underWall === true);
+}
 
 // ── generate ─────────────────────────────────────────────────────────────────
 
@@ -420,6 +439,11 @@ function generate(p: RoomParams): GenOutput {
   if (p.ceiling) {
     parts.push({ role: 'ceiling', name: 'Ceiling', grain: 'none', unclickable: true, position: [x0, p.height, z0], shape: { type: 'slab', params: { x: x1 - x0, y: SLAB, z: z1 - z0, finish: structuredClone(fin.ceiling) } } });
   }
+  (p.annexes ?? []).forEach((a, i) => {
+    const size = { x: a.right - a.left, y: SLAB, z: a.front - a.back };
+    if (p.floor) parts.push({ role: `floor-annex-${i + 1}`, name: `Floor ${i + 2}`, grain: p.floorGrain, unclickable: true, position: [a.left, -SLAB, a.back], shape: { type: 'slab', params: { ...size, finish: structuredClone(fin.floor) } } });
+    if (p.ceiling) parts.push({ role: `ceiling-annex-${i + 1}`, name: `Ceiling ${i + 2}`, grain: 'none', unclickable: true, position: [a.left, p.height, a.back], shape: { type: 'slab', params: { ...size, finish: structuredClone(fin.ceiling) } } });
+  });
 
   for (const side of ROOM_SIDES) {
     if (!built(p, side)) continue;
@@ -595,7 +619,7 @@ function faceDrive(_p: RoomParams, face: GenFace): GenFaceDrive | null {
     if (!inside) return { param: 'wallThickness', label: 'wall thickness', sign: 1 };
     return { param: side, label: `${side} wall`, sign: out[axis]! < 0 ? 1 : -1, kind: 'position' };
   }
-  if (face.role === 'ceiling' && face.axis === 1 && !face.max) return { param: 'height', label: 'room height', sign: -1 };
+  if (/^ceiling(-annex-\d+)?$/.test(face.role) && face.axis === 1 && !face.max) return { param: 'height', label: 'room height', sign: -1 };
   return null;
 }
 
@@ -666,7 +690,8 @@ registerGenerator<RoomParams>({
   schema: roomSchema as unknown as z.ZodType<RoomParams>,
   describe:
     'The room around the model: walls, floor, ceiling, baseboards, windows and doors (decor: never in the cut list). Make or refit it ' +
-    'with the fit_room tool, then change it with update {id, patch: {params}}. One per model; never move it or put things in it. Params ' +
+    'with the fit_room tool, then change it with update {id, patch: {params}}. One per model (an imported house: one per space, walls ' +
+    'off, annexes = more floor and ceiling); never move it or put things in it. Params ' +
     'are room = world coordinates (1/64"): left, right = x of the inside faces of the left and right walls; back, front = z of the ' +
     'inside faces of the back and front walls. height (floor to ceiling, default 96"), walls (which are built: "back" | "left" | ' +
     '"right" | "front"; default all four), wallThickness (default 4 1/2"), floor, ceiling (bool), floorGrain ("x" | "z"), baseboard ' +

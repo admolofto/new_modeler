@@ -397,6 +397,16 @@ export function roomShell(doc: Doc): RoomShell {
         max: [p.right + thick(p, 'right'), p.height + (p.ceiling ? SLAB : 0), p.front + thick(p, 'front')],
       }),
     );
+    // Its annexes: more floor and ceiling, each ceiling cut away on its own.
+    (p.annexes ?? []).forEach((a, i) => {
+      const [floor, ceiling] = [id(`floor-annex-${i + 1}`), id(`ceiling-annex-${i + 1}`)];
+      if (exists(floor)) shell.floors.push(floor);
+      if (exists(ceiling)) {
+        const box = transformBox(A, { min: [a.left, p.height, a.back], max: [a.right, p.height, a.front] });
+        shell.ceilings.push({ ids: [ceiling], height: box.min[1], min: [box.min[0], box.min[2]], max: [box.max[0], box.max[2]] });
+      }
+      bounds.push(transformBox(A, { min: [a.left, p.floor ? -SLAB : 0, a.back], max: [a.right, p.height + (p.ceiling ? SLAB : 0), a.front] }));
+    });
   }
   // Wall pieces: each its own wall, its front face its room side; it goes when the eye is behind it.
   for (const asm of wallPieces(doc)) {

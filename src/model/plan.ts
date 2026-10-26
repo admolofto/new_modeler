@@ -45,11 +45,16 @@ export interface PlanOpening extends PlanWallOpening {
 
 export interface PlanRoom {
   id: string;
+  name: string;
   /** Inside faces of the walls. */
   min: P2;
   max: P2;
   walls: PlanWall[];
   openings: PlanOpening[];
+  /** More of its floor (an L-shaped room's other leg). */
+  annexes: { min: P2; max: P2 }[];
+  /** Its floor area, model units squared. */
+  area: number;
 }
 
 export type PlanItemKind = 'cabinet' | 'appliance' | 'furniture' | 'accessory' | 'block' | 'part' | 'wall';
@@ -161,9 +166,13 @@ function planRoom(doc: Doc, id: string): PlanRoom {
       openings.push({ ...planOpening(o, w.x, w.x + w.w, T, (x, z) => at(side, x, z)), wall: side, room: id });
     }
   }
-  const min = xz(A, p.left, 0, p.back);
-  const max = xz(A, p.right, 0, p.front);
-  return { id, min: [Math.min(min[0], max[0]), Math.min(min[1], max[1])], max: [Math.max(min[0], max[0]), Math.max(min[1], max[1])], walls, openings };
+  const rect = (l: number, r: number, b: number, f: number) => {
+    const [a, c] = [xz(A, l, 0, b), xz(A, r, 0, f)];
+    return { min: [Math.min(a[0], c[0]), Math.min(a[1], c[1])] as P2, max: [Math.max(a[0], c[0]), Math.max(a[1], c[1])] as P2 };
+  };
+  const annexes = (p.annexes ?? []).filter((a) => !a.underWall).map((a) => rect(a.left, a.right, a.back, a.front));
+  const area = [{ left: p.left, right: p.right, back: p.back, front: p.front }, ...(p.annexes ?? []).filter((a) => !a.underWall)].reduce((s, a) => s + (a.right - a.left) * (a.front - a.back), 0);
+  return { id, name: asm.name, ...rect(p.left, p.right, p.back, p.front), walls, openings, annexes, area };
 }
 
 /**

@@ -482,8 +482,21 @@ export function mountPlanView(o: PlanViewOptions): PlanView {
       if (on || hot) out.push(`<path d="M${[i0, i1, o1, o0].map((p) => p.map(f1).join(',')).join('L')}Z" fill="${on ? '#cfe0ff' : '#0000000d'}"/>`);
       out.push(openingMarkup(op, on ? ACCENT : INK, S));
     }
-    out.push(roomDims(r, S));
+    // A room with walls gets its size; one without (a space in an imported plan) its name and area.
+    out.push(r.walls.length ? roomDims(r, S) : roomName(r, S));
     return out.join('');
+  }
+
+  /** A room's name and floor area in the middle of its biggest rectangle, as an architect labels one. */
+  function roomName(r: PlanRoom, S: (p: P2) => P2): string {
+    const rects = [{ min: r.min, max: r.max }, ...r.annexes];
+    const big = rects.reduce((a, b) => ((b.max[0] - b.min[0]) * (b.max[1] - b.min[1]) > (a.max[0] - a.min[0]) * (a.max[1] - a.min[1]) ? b : a));
+    const c = S([(big.min[0] + big.max[0]) / 2, (big.min[1] + big.max[1]) / 2]);
+    const feet = Math.round(r.area / (inches(12) * inches(12)));
+    return (
+      `<text class="sk-text" x="${f1(c[0])}" y="${f1(c[1] - 2)}" text-anchor="middle" font-size="14" opacity="0.85">${esc(r.name)}</text>` +
+      `<text class="sk-text" x="${f1(c[0])}" y="${f1(c[1] + 13)}" text-anchor="middle" font-size="10.5" opacity="0.6">${feet} sq ft</text>`
+    );
   }
 
   /** Stretches of wall, hatched (a room's side, or a wall piece). */

@@ -1,12 +1,14 @@
 import type { Mat3 } from '../model/world';
 import { cabinetFrom, isCounter } from './recognizeCasework';
+import { recognizeRooms, type RoomFound } from './recognizeRooms';
 import { recognizeWalls } from './recognizeWalls';
 import type { Flat, IR, IRAsm, IRNative, IRPart } from './sketchupImport';
 
 /**
  * Recognizing an imported SketchUp model: what of it is one of the app's own pieces comes out of the
  * raw tree and is made by its generator instead — walls (with their doors and windows) in a "Walls"
- * folder, cabinets and countertops in a "Cabinets" one. What isn't recognized stays as it was imported.
+ * folder, cabinets and countertops in a "Cabinets" one — and the spaces the walls close in become
+ * rooms. What isn't recognized stays as it was imported.
  */
 
 export interface Recognized {
@@ -14,6 +16,7 @@ export interface Recognized {
   openings: number;
   cabinets: number;
   counters: number;
+  rooms: number;
 }
 
 const I3: Mat3 = [
@@ -44,7 +47,7 @@ function takeCabinets(ir: IR, found: IRNative[]): IR | null {
   return children.length ? { ...ir, children } : null;
 }
 
-export function recognize(roots: IR[], flats: Flat[]): { roots: IR[]; report: Recognized } {
+export function recognize(roots: IR[], flats: Flat[]): { roots: IR[]; rooms: RoomFound[]; report: Recognized } {
   const walls = recognizeWalls(roots.flatMap(partsOf), flats);
   const cabinets: IRNative[] = [];
   let rest = roots
@@ -57,5 +60,10 @@ export function recognize(roots: IR[], flats: Flat[]): { roots: IR[]; report: Re
   const folders: IRAsm[] = [];
   if (walls.walls.length) folders.push({ kind: 'asm', name: 'Walls', R: I3, children: walls.walls });
   if (cabinets.length || counters.length) folders.push({ kind: 'asm', name: 'Cabinets', R: I3, children: [...cabinets, ...counters] });
-  return { roots: [...folders, ...rest], report: { walls: walls.walls.length, openings: walls.openings, cabinets: cabinets.length, counters: counters.length } };
+  const rooms = recognizeRooms(walls.walls, cabinets, counters);
+  return {
+    roots: [...folders, ...rest],
+    rooms,
+    report: { walls: walls.walls.length, openings: walls.openings, cabinets: cabinets.length, counters: counters.length, rooms: rooms.length },
+  };
 }

@@ -11,6 +11,7 @@ import { apply, eulerXYZ, mul, rotate, transpose, union, worldBoxes, type Affine
 import { cleanLoop, fitArcs, roundFit, type FitPoint } from './arcFit';
 import { BLOCKOUT_MATERIAL, type ColladaMaterial, type ColladaNode, type ColladaScene } from './collada';
 import { recognize, type Recognized } from './recognize';
+import type { RoomFound } from './recognizeRooms';
 
 /**
  * SketchUp model (read from .dae) → editable parts. Each group or component with its own faces
@@ -570,7 +571,8 @@ export function importSketchUp(target: Doc, scene: ColladaScene, title = 'Sketch
   let roots = scene.nodes.map((n) => walk(n, frame, I3, state)).filter((r): r is IR => r !== null);
   if (!roots.length) throw new ModelError('the file has no solid geometry to import (only flat faces or lines)');
   let recognized: Recognized | undefined;
-  if (opts.recognize) ({ roots, report: recognized } = recognize(roots, state.flats));
+  let rooms: RoomFound[] = [];
+  if (opts.recognize) ({ roots, rooms, report: recognized } = recognize(roots, state.flats));
   const top: IRAsm =
     roots.length === 1 && roots[0]!.kind === 'asm'
       ? { ...roots[0]!, name: pickName(roots[0]!.name) || title }
@@ -675,7 +677,23 @@ export function importSketchUp(target: Doc, scene: ColladaScene, title = 'Sketch
     const placed = apply({ m: parentR, t: parentO }, transform.position);
     for (const c of ir.children) emit(c, ir.R, placed, id, nextId(c.kind === 'part' ? 'p' : 'a'));
   };
-  emit(top, I3, scale(besideOffset(target, corners(top)), -1), null, prefix);
+  const offset = besideOffset(target, corners(top));
+  emit(top, I3, scale(offset, -1), null, prefix);
+
+  // Rooms sit at the top level where room coordinates are world ones, moved with the rest.
+  let roomsMade = 0;
+  for (const r of rooms) {
+    const moved = <T extends { left: number; right: number; back: number; front: number }>(a: T): T => ({ ...a, left: a.left + offset[0], right: a.right + offset[0], back: a.back + offset[2], front: a.front + offset[2] });
+    const op: Op = {
+      op: 'add',
+      entity: { kind: 'assembly', id: `${prefix}_room${roomsMade + 1}`, name: r.name, transform: { position: [0, offset[1], 0], rotation: [0, 0, 0] }, generator: { type: 'room', params: { ...moved(r.params), annexes: r.params.annexes.map(moved) } } },
+      parent: null,
+    };
+    if (!applyOps(emptyDoc(), [op]).ok) continue;
+    nodeOps.push(op);
+    roomsMade++;
+  }
+  if (summary.recognized) summary.recognized.rooms = roomsMade;
 
   const ops = [...materialOps, ...nodeOps];
   const result = applyOps(target, ops);

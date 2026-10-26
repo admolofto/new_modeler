@@ -100,6 +100,7 @@ export function describe(s: ImportSummary): string {
     r?.walls && `${plural(r.walls, 'wall')} with ${plural(r.openings, 'door or window', 'doors and windows')}`,
     r?.cabinets && plural(r.cabinets, 'cabinet'),
     r?.counters && plural(r.counters, 'countertop'),
+    r?.rooms && plural(r.rooms, 'room'),
   ].filter(Boolean).join(', ');
   const raw = made.join(', ');
   const what = [native, raw && (native ? `and ${raw} as they were` : raw)].filter(Boolean).join(' ');
