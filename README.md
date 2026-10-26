@@ -207,12 +207,15 @@ included.
 
 ## SketchUp
 
-Exchange uses COLLADA (.dae), which SketchUp reads and writes natively.
+**Import SketchUp…** opens `.skp` files directly on a PC with SketchUp installed: the local
+server reads them through SketchUp's own `SketchUpAPI.dll` (set `SKETCHUP_API_DLL` to use another
+copy). Without SketchUp, or in the hosted app, use COLLADA (.dae), which SketchUp reads and writes natively.
+Hidden entities and entities on hidden tags are left out of a `.skp` import.
 
 - **To SketchUp:** **Export** downloads `model.dae`. In SketchUp: File › Import,
   choose COLLADA. Assemblies become nested groups; names, colors and sizes carry over
   (Z up, inches). Hidden parts are included.
-- **From SketchUp:** File › Export › 3D Model › COLLADA (.dae), then **Import…** here.
+- **From SketchUp:** pick the `.skp` in **Import SketchUp…**, or File › Export › 3D Model › COLLADA (.dae) and import that.
   Each group or component becomes:
   - a **box part** when it's a plain rectangular board;
   - an **outline part** when it's a straight extrusion of another shape (notches, angles);

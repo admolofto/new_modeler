@@ -1,5 +1,5 @@
 import { targetsOf } from '../edit/gizmo';
-import { exportCollada, parseCollada } from '../io/collada';
+import { exportCollada, parseCollada, type ColladaScene } from '../io/collada';
 import { importSketchUp, type ImportSummary } from '../io/sketchupImport';
 import type { Doc } from '../model/schema';
 import type { Store } from '../model/store';
@@ -8,8 +8,8 @@ import type { Selection } from './selection';
 import { toast } from './toast';
 
 /**
- * SketchUp exchange through COLLADA (.dae), which SketchUp reads and writes natively:
- * Import… adds a SketchUp model as editable parts in one undo step; Export downloads the model.
+ * SketchUp exchange: Import… adds a SketchUp model (.skp, read by the local server through SketchUp's own
+ * library, or a COLLADA .dae export) as editable parts in one undo step; Export downloads a .dae.
  */
 
 export interface SketchUpOptions {
@@ -23,8 +23,8 @@ export interface SketchUpOptions {
 export function mountSketchUp(o: SketchUpOptions): void {
   const importBtn = el(
     'button',
-    { class: 'btn ghost', title: 'Add a SketchUp model as editable parts. In SketchUp: File › Export › 3D Model, type COLLADA (.dae)' },
-    'Import SketchUp (.dae)…',
+    { class: 'btn ghost', title: 'Add a SketchUp model (.skp, or a COLLADA .dae export) as editable parts' },
+    'Import SketchUp…',
   );
   const exportBtn = el('button', { class: 'btn ghost', title: 'Download the model for SketchUp (.dae). In SketchUp: File › Import' }, 'Export for SketchUp (.dae)');
   o.slot.append(importBtn, exportBtn);
@@ -32,11 +32,12 @@ export function mountSketchUp(o: SketchUpOptions): void {
   importBtn.addEventListener('click', async () => {
     const blocked = o.editBlocked();
     if (blocked) return toast(blocked, true);
-    const file = await pickDae();
+    const file = await pickFile();
     if (!file) return;
     try {
-      const title = file.name.replace(/\.dae$/i, '') || 'SketchUp import';
-      const insertion = importSketchUp(o.store.doc, parseCollada(await file.text()), title);
+      const title = file.name.replace(/\.(dae|skp)$/i, '') || 'SketchUp import';
+      const scene = /\.skp$/i.test(file.name) ? await readSkp(file) : parseCollada(await file.text());
+      const insertion = importSketchUp(o.store.doc, scene, title);
       const result = o.store.dispatch(insertion.ops);
       if (!result.ok) throw new Error(result.error);
       o.selection.set(targetsOf(result.doc, [insertion.wrapperId]));
@@ -62,9 +63,23 @@ export function mountSketchUp(o: SketchUpOptions): void {
   });
 }
 
-function pickDae(): Promise<File | null> {
+/** .skp files are read by the local server (server/skp.ts), which needs SketchUp installed on the PC. */
+async function readSkp(file: File): Promise<ColladaScene> {
+  const noServer = 'opening .skp files needs Modeler running on a PC with SketchUp installed. In SketchUp: File › Export › 3D Model › COLLADA (.dae), and import that instead';
+  let res: Response;
+  try {
+    res = await fetch('/api/skp', { method: 'POST', body: file, headers: { 'content-type': 'application/octet-stream' } });
+  } catch {
+    throw new Error(noServer);
+  }
+  const body = (await res.json().catch(() => null)) as { scene?: ColladaScene; error?: { message?: string } } | null;
+  if (res.ok && body?.scene) return body.scene;
+  throw new Error(res.status === 404 || !body ? noServer : (body.error?.message ?? `error ${res.status}`));
+}
+
+function pickFile(): Promise<File | null> {
   return new Promise((resolve) => {
-    const input = Object.assign(document.createElement('input'), { type: 'file', accept: '.dae,model/vnd.collada+xml' });
+    const input = Object.assign(document.createElement('input'), { type: 'file', accept: '.skp,.dae,model/vnd.collada+xml' });
     input.onchange = () => resolve(input.files?.[0] ?? null);
     input.oncancel = () => resolve(null);
     input.click();
