@@ -126,7 +126,7 @@ export interface Lighting {
   readonly bloom: number;
   /** Glowing finishes' level (fixtures on or off). */
   readonly fixtureLevel: number;
-  /** Whether the room shell shows (the studio hides it). */
+  /** Whether the room shell shows (the studio hides a room; a plan of wall pieces always shows). */
   readonly showRoom: boolean;
   /** Whether the environment is the probe (so it's worth re-capturing). */
   readonly usesProbe: boolean;
@@ -402,9 +402,12 @@ export function createLighting(scene: THREE.Scene, renderer: THREE.WebGLRenderer
       const saved = doc.presentation?.lighting;
       const shell = roomShell(doc);
       const inside = roomInterior(doc);
-      // A hidden room counts as none.
+      // A hidden room counts as none. A house of wall pieces (an imported plan) has no ceiling to light
+      // it like a room: it's lit like the studio, its walls shown.
       const theRoom = roomOf(doc);
-      const hasRoom = !!shell.bounds && !!theRoom && !hiddenNodes(doc).has(theRoom.id);
+      const hidden = hiddenNodes(doc);
+      const hasRoom = !!shell.bounds && !!theRoom && !hidden.has(theRoom.id);
+      const plan = !theRoom && shell.walls.some((w) => !hidden.has(w.room));
       const id = resolvePreset(saved, hasRoom);
       const spec = PRESETS[id];
       const inRoom = hasRoom && spec.room;
@@ -488,7 +491,7 @@ export function createLighting(scene: THREE.Scene, renderer: THREE.WebGLRenderer
       scene.environmentIntensity = spec.env.intensity;
 
       const ev = saved?.exposure ?? 0;
-      state = { preset: id, ev, exposure: presetExposure(id, ev), bloom: spec.bloom, fixtureLevel: spec.fixtures, showRoom: inRoom, usesProbe };
+      state = { preset: id, ev, exposure: presetExposure(id, ev), bloom: spec.bloom, fixtureLevel: spec.fixtures, showRoom: inRoom || plan, usesProbe };
       const nextKey = JSON.stringify([id, sun, under, fixtures, stripPlan, roomBox, probeAt.toArray()]);
       const probe = usesProbe && (nextKey !== probeKey || !probeEnv);
       probeKey = nextKey;
