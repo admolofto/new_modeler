@@ -232,7 +232,7 @@ export function openingSpan(o: Pick<RoomOpening, 'at' | 'width'>): [number, numb
 }
 
 /** How high an opening starts: doors at the floor. */
-export const openingBottom = (o: RoomOpening): number => (o.kind === 'door' ? 0 : o.sill);
+export const openingBottom = (o: OpeningSpec): number => (o.kind === 'door' ? 0 : o.sill);
 
 /** An opening as a cut through its wall, in the wall's frame. */
 export function wallOpening(p: RoomParams, o: RoomOpening): WallOpening {
@@ -262,34 +262,38 @@ export const nextOpeningId = (openings: readonly RoomOpening[], kind: OpeningKin
 // ── params ───────────────────────────────────────────────────────────────────
 
 const Side = z.enum(ROOM_SIDES);
-const OpeningId = z.string().regex(/^[A-Za-z0-9_-]+$/, 'opening ids are letters, digits, _ and - (no ":" or ".")');
-const base = {
+export const OpeningId = z.string().regex(/^[A-Za-z0-9_-]+$/, 'opening ids are letters, digits, _ and - (no ":" or ".")');
+/** What every opening has, wherever it is: its id, size and casing. */
+export const OPENING_COMMON = {
   id: OpeningId.optional(),
-  wall: Side,
-  at: z.int(),
   width: z.int().min(inches(12)),
   height: z.int().min(inches(12)),
   casing: z.boolean().default(true),
 };
-const Opening = z.discriminatedUnion('kind', [
-  z.object({
-    ...base,
+/** Each kind's own fields (a wall piece's openings use them too). */
+export const OPENING_KINDS = {
+  window: {
     kind: z.literal('window'),
     sill: z.int().nonnegative().default(OPENING_DEFAULTS.window.sill),
     style: z.enum(WINDOW_STYLES).default('double-hung'),
     grid: z.tuple([z.int().min(1).max(8), z.int().min(1).max(8)]).optional(),
     stool: z.boolean().default(true),
-  }),
-  z.object({
-    ...base,
+  },
+  door: {
     kind: z.literal('door'),
     leaf: z.enum(['panel', 'slab', 'glass', 'none']).default('panel'),
     hinge: z.enum(['left', 'right']).default('left'),
     swing: z.enum(['in', 'out']).default('in'),
     angle: z.number().gt(0).max(180).default(90),
     handle: z.enum(['lever', 'knob']).default('lever'),
-  }),
-  z.object({ ...base, kind: z.literal('opening'), sill: z.int().nonnegative().default(0) }),
+  },
+  opening: { kind: z.literal('opening'), sill: z.int().nonnegative().default(0) },
+};
+const base = { ...OPENING_COMMON, wall: Side, at: z.int() };
+const Opening = z.discriminatedUnion('kind', [
+  z.object({ ...base, ...OPENING_KINDS.window }),
+  z.object({ ...base, ...OPENING_KINDS.door }),
+  z.object({ ...base, ...OPENING_KINDS.opening }),
 ]);
 
 type ParsedRoom = Omit<RoomParams, 'openings'> & { openings: (Omit<RoomOpening, 'id'> & { id?: string | undefined })[] };
@@ -374,7 +378,7 @@ export const roomSchema = z
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 /** A window's (or cased opening's) trim, sized for where it sits: a stool and apron when there's room under it. */
-function casingFor(o: RoomOpening, finish: Finish): Extract<TrimParams, { style: 'frame' }> {
+function casingFor(o: OpeningSpec, finish: Finish): Extract<TrimParams, { style: 'frame' }> {
   const y = openingBottom(o);
   const frame = { style: 'frame' as const, w: o.width, h: o.height, width: CASING_WIDTH, thickness: CASING_THICKNESS, finish: structuredClone(finish) };
   if (o.kind === 'window' && o.stool && y >= APRON + STOOL.thickness) return { ...frame, sides: 3, stool: { ...STOOL }, apron: APRON };
@@ -471,79 +475,106 @@ function generate(p: RoomParams): GenOutput {
     }
 
     for (const o of mine) {
-      const w = wallOpening(p, o);
-      const label = `${cap(o.kind)} ${o.id}`;
-      if (o.casing) {
-        const trim = casingFor(o, fin.trim);
-        const layout = frameLayout(trim);
-        parts.push(
-          onWall(
-            { role: `casing-${o.id}`, name: `${label} casing`, grain: 'none', unclickable: true, shape: { type: 'trim', params: trim as unknown as Record<string, unknown> } },
-            [w.x - layout.opening[0], w.y - layout.opening[1], T],
-          ),
-        );
-      }
-      if (o.kind === 'window') {
-        const depth = Math.min(T, WINDOW_DEPTH);
-        parts.push(
-          onWall(
-            {
-              role: `window-${o.id}`,
-              name: label,
-              grain: 'none',
-              shape: { type: 'window', params: { x: w.w, y: w.h, z: depth, style: o.style, ...(o.grid && { grid: [...o.grid] }), finish: structuredClone(fin.windows), glass: { preset: 'glass:clear' } } },
-            },
-            [w.x, w.y, T - depth],
-          ),
-        );
-      }
-      if (o.kind === 'door' && o.leaf !== 'none') {
-        // In a folder in the wall's frame, which swings about the hinge edge.
-        const folder = `door-${o.id}`;
-        groups.push({ role: folder, name: label, position: fr.position, rotation: fr.rotation });
-        const leafRole = `${folder}-leaf`;
-        const lx = w.x + LEAF_GAP;
-        const lw = w.w - 2 * LEAF_GAP;
-        const lz = Math.floor((T - LEAF_THICKNESS) / 2);
-        parts.push({
-          role: leafRole,
-          name: label,
-          grain: 'y',
-          group: folder,
-          position: [lx, UNDERCUT, lz],
-          shape: { type: 'doorLeaf', params: { x: lw, y: o.height - UNDERCUT - LEAF_GAP, z: LEAF_THICKNESS, style: o.leaf, finish: structuredClone(fin.doors), glass: { preset: 'glass:clear' } } },
-        });
-        // Handles on both faces at the latch edge; a lever points toward the hinge side.
-        const handle: PullParams = { style: o.handle, orientation: 'h', finish: { ...PULL_FINISH }, through: LEAF_THICKNESS };
-        const [, hy, hz] = pullBox(handle);
-        const r = hy / 2;
-        const projection = (hz - LEAF_THICKNESS) / 2;
-        const latchLeft = o.hinge === 'right';
-        const roseX = latchLeft ? lx + BACKSET : lx + lw - BACKSET;
-        parts.push({
-          role: `${folder}-handle`,
-          name: `${label} handle`,
-          grain: 'none',
-          group: folder,
-          mountedOn: leafRole,
-          // Turned half round (levers reach −X) when the latch is on the right.
-          ...(latchLeft
-            ? { position: [Math.round(roseX - r), Math.round(HANDLE_HEIGHT - r), lz - projection] as Vec3 }
-            : { position: [Math.round(roseX + r), Math.round(HANDLE_HEIGHT - r), lz + LEAF_THICKNESS + projection] as Vec3, rotation: [0, 180, 0] as Rotation }),
-          shape: { type: 'pull', params: handle as unknown as Record<string, unknown> },
-        });
-        motions.push({
-          role: folder,
-          name: label,
-          type: 'hinge',
-          nodes: [folder],
-          requires: [leafRole],
-          params: { side: o.hinge, toward: o.swing === 'in' ? 'front' : 'back', angle: o.angle },
-        });
-      }
+      const made = openingPieces(o, wallOpening(p, o), T, fin, fr, onWall);
+      parts.push(...made.parts);
+      groups.push(...made.groups);
+      motions.push(...made.motions);
     }
   }
   return { parts, groups, joints: [], motions };
+}
+
+type Without<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+/** An opening as any wall cuts it: what it is, not where it is. */
+export type OpeningSpec = Without<RoomOpening, 'wall' | 'at'>;
+
+/**
+ * One opening's pieces, cut at `w` through a wall `T` thick whose room side is its +Z face: its
+ * casing (on that face), its window, or its door — a folder at `frame` (the wall's frame in the
+ * generator's) holding the leaf and handles, which swings. `onWall` places a part by its min corner
+ * in the wall's frame.
+ */
+export function openingPieces(
+  o: OpeningSpec,
+  w: WallOpening,
+  T: number,
+  fin: Pick<RoomFinishes, 'trim' | 'doors' | 'windows'>,
+  frame: { position: Vec3; rotation: Rotation },
+  onWall: (part: Omit<GenPart, 'position' | 'rotation'>, at: V3) => GenPart,
+): { parts: GenPart[]; groups: GenGroup[]; motions: GenMotion[] } {
+  const parts: GenPart[] = [];
+  const groups: GenGroup[] = [];
+  const motions: GenMotion[] = [];
+  const label = `${cap(o.kind)} ${o.id}`;
+  if (o.casing) {
+    const trim = casingFor(o, fin.trim);
+    const layout = frameLayout(trim);
+    parts.push(
+      onWall(
+        { role: `casing-${o.id}`, name: `${label} casing`, grain: 'none', unclickable: true, shape: { type: 'trim', params: trim as unknown as Record<string, unknown> } },
+        [w.x - layout.opening[0], w.y - layout.opening[1], T],
+      ),
+    );
+  }
+  if (o.kind === 'window') {
+    const depth = Math.min(T, WINDOW_DEPTH);
+    parts.push(
+      onWall(
+        {
+          role: `window-${o.id}`,
+          name: label,
+          grain: 'none',
+          shape: { type: 'window', params: { x: w.w, y: w.h, z: depth, style: o.style, ...(o.grid && { grid: [...o.grid] }), finish: structuredClone(fin.windows), glass: { preset: 'glass:clear' } } },
+        },
+        [w.x, w.y, T - depth],
+      ),
+    );
+  }
+  if (o.kind === 'door' && o.leaf !== 'none') {
+    // In a folder in the wall's frame, which swings about the hinge edge.
+    const folder = `door-${o.id}`;
+    groups.push({ role: folder, name: label, position: frame.position, rotation: frame.rotation });
+    const leafRole = `${folder}-leaf`;
+    const lx = w.x + LEAF_GAP;
+    const lw = w.w - 2 * LEAF_GAP;
+    const lz = Math.floor((T - LEAF_THICKNESS) / 2);
+    parts.push({
+      role: leafRole,
+      name: label,
+      grain: 'y',
+      group: folder,
+      position: [lx, UNDERCUT, lz],
+      shape: { type: 'doorLeaf', params: { x: lw, y: o.height - UNDERCUT - LEAF_GAP, z: LEAF_THICKNESS, style: o.leaf, finish: structuredClone(fin.doors), glass: { preset: 'glass:clear' } } },
+    });
+    // Handles on both faces at the latch edge; a lever points toward the hinge side.
+    const handle: PullParams = { style: o.handle, orientation: 'h', finish: { ...PULL_FINISH }, through: LEAF_THICKNESS };
+    const [, hy, hz] = pullBox(handle);
+    const r = hy / 2;
+    const projection = (hz - LEAF_THICKNESS) / 2;
+    const latchLeft = o.hinge === 'right';
+    const roseX = latchLeft ? lx + BACKSET : lx + lw - BACKSET;
+    parts.push({
+      role: `${folder}-handle`,
+      name: `${label} handle`,
+      grain: 'none',
+      group: folder,
+      mountedOn: leafRole,
+      // Turned half round (levers reach −X) when the latch is on the right.
+      ...(latchLeft
+        ? { position: [Math.round(roseX - r), Math.round(HANDLE_HEIGHT - r), lz - projection] as Vec3 }
+        : { position: [Math.round(roseX + r), Math.round(HANDLE_HEIGHT - r), lz + LEAF_THICKNESS + projection] as Vec3, rotation: [0, 180, 0] as Rotation }),
+      shape: { type: 'pull', params: handle as unknown as Record<string, unknown> },
+    });
+    motions.push({
+      role: folder,
+      name: label,
+      type: 'hinge',
+      nodes: [folder],
+      requires: [leafRole],
+      params: { side: o.hinge, toward: o.swing === 'in' ? 'front' : 'back', angle: o.angle },
+    });
+  }
+  return { parts, groups, motions };
 }
 
 // ── editing ──────────────────────────────────────────────────────────────────

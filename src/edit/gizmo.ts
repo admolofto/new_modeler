@@ -24,8 +24,11 @@ export function gizmoNodes(doc: Doc, targets: readonly Target[]): string[] | nul
     if (parts.length === picked.size && parts.every((id) => picked.has(id))) whole = p;
     else if (parts.length > picked.size) break;
   }
-  // The room stays where it is (its params are world coordinates): push its walls instead.
-  const room = (id: string) => generators.has(doc.assemblies[id]?.generator?.type ?? '') && !!generators.get(doc.assemblies[id]!.generator!.type).surroundings;
+  // The room stays where it is (its params are world coordinates): push its walls instead. Wall pieces move.
+  const room = (id: string) => {
+    const type = doc.assemblies[id]?.generator?.type ?? '';
+    return generators.has(type) && !!generators.get(type).surroundings && !generators.get(type).movable;
+  };
   if (whole && (room(whole) || room(generatedOwner(doc, whole)?.id ?? ''))) return null;
   if (whole) return [whole];
   const ids = [...new Set(targets.map((t) => generatedOwner(doc, t.node)?.id ?? t.node))];

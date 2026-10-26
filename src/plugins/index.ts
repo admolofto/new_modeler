@@ -13,6 +13,7 @@ import './features/edgeProfile';
 import './features/dado';
 import './generators/carcass';
 import './generators/room';
+import './generators/wall';
 import './generators/appliances';
 import './motions/hinge';
 import './motions/slide';

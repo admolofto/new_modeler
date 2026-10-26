@@ -225,6 +225,18 @@ Hidden entities and entities on hidden tags are left out of a `.skp` import.
   model or library material of that thickness, else a new one. Holes and pockets
   are dropped (the import message counts them). Into an empty model, SketchUp's
   coordinates are kept; otherwise the import lands 12" to the right. Undo removes it.
+- **Walls are recognized:** an upright board 6'–20' tall and 2 3/4"–16" thick becomes a
+  **wall piece** (in a **Walls** folder) with its doors, windows and cased openings cut
+  in. They come from holes cut through the board, notches up from its bottom, and
+  rectangles drawn on its face (of an outline drawn inside another, the inner one: the
+  leaf, not the casing); full-height rectangles are taken for paint. At the floor it's a
+  door (a cased opening over 42" wide), higher up a window. A wall's front, where window
+  stools are and doors swing to, faces its room: the side with another wall beyond it,
+  else the side with cabinets in front of it.
+- A wall piece moves and turns like a cabinet; push / pull its end, top or faces for its
+  length, height and thickness; click a face for **Add window / door / opening here**. The
+  2D plan draws it hatched with its doors' swings, and the cutaway steps it aside like a
+  room wall. The AI edits it through its `openings` (`at` measured from the wall's start).
 - Generators, joints, variables and features don't survive a round trip — the result
   is plain parts.
 

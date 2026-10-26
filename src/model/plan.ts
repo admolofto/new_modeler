@@ -1,5 +1,6 @@
 import { generators } from '../plugins/registry';
-import { openingLabel, wallFrame, wallOpening, wallToRoom, type RoomOpening, type RoomSide } from '../plugins/generators/room';
+import { openingLabel, wallFrame, wallOpening, wallToRoom, type OpeningSpec, type RoomOpening, type RoomSide } from '../plugins/generators/room';
+import { wallCut, type WallPieceParams } from '../plugins/generators/wall';
 import { decorInfo } from './decor';
 import { roomParams, rooms } from './room';
 import type { Doc } from './schema';
@@ -23,11 +24,10 @@ export interface PlanWall {
   pieces: P2[][];
 }
 
-export interface PlanOpening {
+/** An opening as the plan draws it, in a room's wall or a wall piece. */
+export interface PlanWallOpening {
   id: string;
   kind: RoomOpening['kind'];
-  wall: RoomSide;
-  room: string;
   label: string;
   width: number;
   /** Its jambs: the left one (as seen from inside) and the right one, on the inside face and the outside face. */
@@ -35,6 +35,12 @@ export interface PlanOpening {
   outside: [P2, P2];
   /** A door's leaf, drawn open: the hinge, the leaf's far end, and its swing (an arc from closed to open). */
   door?: { hinge: P2; leaf: P2; arc: P2[] };
+}
+
+/** An opening in one of a room's walls. */
+export interface PlanOpening extends PlanWallOpening {
+  wall: RoomSide;
+  room: string;
 }
 
 export interface PlanRoom {
@@ -46,7 +52,7 @@ export interface PlanRoom {
   openings: PlanOpening[];
 }
 
-export type PlanItemKind = 'cabinet' | 'appliance' | 'furniture' | 'accessory' | 'block' | 'part';
+export type PlanItemKind = 'cabinet' | 'appliance' | 'furniture' | 'accessory' | 'block' | 'part' | 'wall';
 /** Base: stands on the floor; upper: hangs above the counter (dashed in a plan); tall: floor to above it. */
 export type PlanLevel = 'base' | 'upper' | 'tall';
 
@@ -64,6 +70,8 @@ export interface PlanItem {
   /** Bottom and top, world y. */
   bottom: number;
   top: number;
+  /** A wall piece: its outline, cut at its openings (one closed outline per stretch), and the openings. */
+  wall?: { pieces: P2[][]; openings: PlanWallOpening[] };
 }
 
 export interface Plan {
@@ -84,6 +92,47 @@ const xz = (A: Affine, x: number, y: number, z: number): P2 => {
   const p = apply(A, [x, y, z]);
   return [p[0], p[2]];
 };
+
+/**
+ * An opening's footprint through a wall `T` thick (wall-local x from `l` to `r`; its room side at
+ * z = T), and a door's leaf drawn open toward the side it swings to. `at` maps wall-local (x, z) to the plan.
+ */
+function planOpening(o: OpeningSpec, l: number, r: number, T: number, at: (x: number, z: number) => P2): PlanWallOpening {
+  const op: PlanWallOpening = { id: o.id, kind: o.kind, label: openingLabel(o), width: o.width, inside: [at(l, T), at(r, T)], outside: [at(l, 0), at(r, 0)] };
+  if (o.kind === 'door' && o.leaf !== 'none') {
+    // Wall-local: x along the wall (left → right from the room side), z into the room.
+    const hx = o.hinge === 'left' ? l : r;
+    const ux = o.hinge === 'left' ? 1 : -1;
+    const [hz, uz] = o.swing === 'in' ? [T, 1] : [0, -1];
+    const end = (deg: number) => {
+      const a = (deg * Math.PI) / 180;
+      return at(hx + ux * o.width * Math.cos(a), hz + uz * o.width * Math.sin(a));
+    };
+    const steps = Math.max(4, Math.ceil(o.angle / 6));
+    op.door = { hinge: at(hx, hz), leaf: end(o.angle), arc: Array.from({ length: steps + 1 }, (_, i) => end((o.angle * i) / steps)) };
+  }
+  return op;
+}
+
+/** A wall piece from above: the stretches of wall between its openings, and the openings. */
+function planWallPiece(doc: Doc, id: string): NonNullable<PlanItem['wall']> {
+  const p = doc.assemblies[id]!.generator!.params as unknown as WallPieceParams;
+  const A = nodeAffine(doc, id);
+  const T = p.thickness;
+  const at = (x: number, z: number) => xz(A, x, 0, z);
+  const cuts = p.openings.map(wallCut).sort((a, b) => a.x - b.x);
+  const pieces: P2[][] = [];
+  let from = 0;
+  for (const c of [...cuts, { x: p.length, w: 0 }]) {
+    if (c.x - from > 0) pieces.push([at(from, 0), at(c.x, 0), at(c.x, T), at(from, T)]);
+    from = Math.max(from, c.x + c.w);
+  }
+  const openings = p.openings.map((o) => {
+    const w = wallCut(o);
+    return planOpening(o, w.x, w.x + w.w, T, at);
+  });
+  return { pieces, openings };
+}
 
 function planRoom(doc: Doc, id: string): PlanRoom {
   const asm = doc.assemblies[id]!;
@@ -109,30 +158,7 @@ function planRoom(doc: Doc, id: string): PlanRoom {
     for (const o of p.openings) {
       if (o.wall !== side) continue;
       const w = wallOpening(p, o);
-      const [l, r] = [w.x, w.x + w.w];
-      const op: PlanOpening = {
-        id: o.id,
-        kind: o.kind,
-        wall: side,
-        room: id,
-        label: openingLabel(o),
-        width: o.width,
-        inside: [at(side, l, T), at(side, r, T)],
-        outside: [at(side, l, 0), at(side, r, 0)],
-      };
-      if (o.kind === 'door' && o.leaf !== 'none') {
-        // Wall-local: x along the wall (left → right from inside), z into the room.
-        const hx = o.hinge === 'left' ? l : r;
-        const ux = o.hinge === 'left' ? 1 : -1;
-        const [hz, uz] = o.swing === 'in' ? [T, 1] : [0, -1];
-        const end = (deg: number) => {
-          const a = (deg * Math.PI) / 180;
-          return at(side, hx + ux * o.width * Math.cos(a), hz + uz * o.width * Math.sin(a));
-        };
-        const steps = Math.max(4, Math.ceil(o.angle / 6));
-        op.door = { hinge: at(side, hx, hz), leaf: end(o.angle), arc: Array.from({ length: steps + 1 }, (_, i) => end((o.angle * i) / steps)) };
-      }
-      openings.push(op);
+      openings.push({ ...planOpening(o, w.x, w.x + w.w, T, (x, z) => at(side, x, z)), wall: side, room: id });
     }
   }
   const min = xz(A, p.left, 0, p.back);
@@ -161,6 +187,8 @@ function pieces(doc: Doc, hidden: Set<string>): { id: string; kind: PlanItemKind
     if (!asm) return;
     const gen = asm.generator;
     if (gen && generators.has(gen.type) && generators.get(gen.type).surroundings) {
+      // A wall piece is a piece of its own (it moves); the room isn't.
+      if (generators.get(gen.type).movable) return void out.push({ id, kind: 'wall' });
       // Only what was put in the room by hand: its own pieces have roles.
       for (const c of asm.children) if ((doc.parts[c] ?? doc.assemblies[c])?.role === undefined) visit(c);
       return;
@@ -236,14 +264,16 @@ export function floorPlan(doc: Doc): Plan {
       depth: z1 - z0,
       bottom,
       top,
+      ...(kind === 'wall' && { wall: planWallPiece(doc, id) }),
     });
   }
-  // Uppers last, so they draw over what's under them.
-  items.sort((a, b) => Number(a.level === 'upper') - Number(b.level === 'upper'));
+  // Walls first and uppers last, so each draws over what's under it.
+  const order = (i: PlanItem) => (i.kind === 'wall' ? 0 : i.level === 'upper' ? 2 : 1);
+  items.sort((a, b) => order(a) - order(b));
 
   const pts: P2[] = [
     ...planRooms.flatMap((r) => [r.min, r.max, ...r.walls.flatMap((w) => w.pieces.flat()), ...r.openings.flatMap((o) => o.door?.arc ?? [])]),
-    ...items.flatMap((i) => i.corners),
+    ...items.flatMap((i) => [...i.corners, ...(i.wall?.openings.flatMap((o) => o.door?.arc ?? []) ?? [])]),
   ];
   const bounds = pts.length
     ? { min: [Math.min(...pts.map((p) => p[0])), Math.min(...pts.map((p) => p[1]))] as P2, max: [Math.max(...pts.map((p) => p[0])), Math.max(...pts.map((p) => p[1]))] as P2 }

@@ -7,9 +7,10 @@ describe('AI tool schemas', () => {
   // and ~66k with the props and appliances (phase 7: 11 prop shapes and 4 appliance generators, ~16k
   // after terse describes and bare finish objects). Raised from 60k to 72k in phase 7, leaving ~6k for
   // views (phase 8); the view entity and its line in the apply_ops description took ~1.9k (~67.9k).
-  // Grow it on purpose, not by accident.
+  // The wall piece (SketchUp floor plans) took ~3.6k after a terse describe and default-free
+  // finishes (~74.1k): raised to 76k. Grow it on purpose, not by accident.
   it('stay within the size budget', () => {
-    expect(JSON.stringify(toolDefs()).length).toBeLessThan(72_000);
+    expect(JSON.stringify(toolDefs()).length).toBeLessThan(76_000);
   });
 
   it('offer a decor entity for the decor shapes the AI may add (a pull), not stock shapes', () => {

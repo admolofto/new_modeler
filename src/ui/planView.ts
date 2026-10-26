@@ -6,7 +6,7 @@ import type { V3 } from '../geometry/types';
 import { nextId, parentIndex } from '../model/doc';
 import { genPartId } from '../model/generate';
 import { applyOps, type Op } from '../model/ops';
-import { floorPlan, type P2, type Plan, type PlanItem, type PlanOpening, type PlanRoom } from '../model/plan';
+import { floorPlan, type P2, type Plan, type PlanItem, type PlanOpening, type PlanRoom, type PlanWallOpening } from '../model/plan';
 import { alongWall, placeOpening, roomAround, roomOf, roomParams } from '../model/room';
 import type { Doc } from '../model/schema';
 import type { Store } from '../model/store';
@@ -94,6 +94,7 @@ const WASH: Record<PlanItem['kind'], string> = {
   accessory: '#eadfd0',
   block: '#e2ddd3',
   part: '#ead9bf',
+  wall: '#efe7d6',
 };
 
 // ── sketchy strokes ──────────────────────────────────────────────────────────
@@ -302,11 +303,17 @@ export function mountPlanView(o: PlanViewOptions): PlanView {
     // The rooms.
     for (const r of plan.rooms) out.push(roomMarkup(r, S));
 
-    // The pieces: footprints, uppers dashed over the rest.
+    // The pieces: wall pieces like the room's walls, then footprints, uppers dashed over the rest.
     for (const i of plan.items) {
       const pts = i.corners.map(S);
       const on = sel.has(i.id);
       const hot = hover === i.id;
+      if (i.wall) {
+        out.push(wallMarkup(i.id, i.wall.pieces, on ? ACCENT : INK, S));
+        if (hot && !on) out.push(`<path d="M${pts.map((p) => p.map(f1).join(',')).join('L')}Z" fill="#0000000d"/>`);
+        for (const op of i.wall.openings) out.push(openingMarkup(op, on ? ACCENT : INK, S));
+        continue;
+      }
       const stroke = on ? ACCENT : INK;
       const wash = on ? '#cfe0ff' : WASH[i.kind];
       if (i.level === 'upper') {
@@ -466,52 +473,65 @@ export function mountPlanView(o: PlanViewOptions): PlanView {
   function roomMarkup(r: PlanRoom, S: (p: P2) => P2): string {
     const out: string[] = [];
     const picked = roomSelected(r);
-    for (const w of r.walls) {
-      for (const [k, piece] of w.pieces.entries()) {
-        const pts = piece.map(S);
-        out.push(`<path d="M${pts.map((p) => p.map(f1).join(',')).join('L')}Z" fill="#efe7d6"/>`);
-        out.push(`<path d="M${pts.map((p) => p.map(f1).join(',')).join('L')}Z" fill="url(#pv-hatch)"/>`);
-        out.push(`<path d="${sketchPoly(pts, `${r.id}:${w.side}:${k}`)}" fill="none" stroke="${picked ? ACCENT : INK}" stroke-width="1.7" stroke-linecap="round"/>`);
-      }
-    }
+    for (const w of r.walls) out.push(wallMarkup(`${r.id}:${w.side}`, w.pieces, picked ? ACCENT : INK, S));
     for (const op of r.openings) {
       const on = openingSelected(op);
       const hot = hover === `${op.room}:${op.id}`;
-      const stroke = on ? ACCENT : INK;
       const [i0, i1] = op.inside.map(S) as [P2, P2];
       const [o0, o1] = op.outside.map(S) as [P2, P2];
       if (on || hot) out.push(`<path d="M${[i0, i1, o1, o0].map((p) => p.map(f1).join(',')).join('L')}Z" fill="${on ? '#cfe0ff' : '#0000000d'}"/>`);
-      if (op.kind === 'window') {
-        // Sill lines on both faces and the glass between them.
-        const mid = (a: P2, b: P2): P2 => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-        const [m0, m1] = [mid(i0, o0), mid(i1, o1)];
-        const off = (p: P2, q: P2, t: number): P2 => [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t];
-        out.push(
-          `<path d="${sketchLine(i0, i1, `${op.id}w1`, 1, false)}${sketchLine(o0, o1, `${op.id}w2`, 1, false)}" stroke="${stroke}" stroke-width="1.2" fill="none"/>`,
-          `<path d="${sketchLine(off(m0, i0, 0.25), off(m1, i1, 0.25), `${op.id}g1`, 1, false)}${sketchLine(off(m0, o0, 0.25), off(m1, o1, 0.25), `${op.id}g2`, 1, false)}" stroke="${stroke}" stroke-width="0.9" fill="none"/>`,
-        );
-      } else if (op.door) {
-        const h = S(op.door.hinge);
-        const leaf = S(op.door.leaf);
-        out.push(
-          `<path d="${sketchCurve(op.door.arc.map(S), `${op.id}arc`)}" stroke="${stroke}" stroke-width="0.9" fill="none" stroke-dasharray="2 3"/>`,
-          `<path d="${sketchLine(h, leaf, `${op.id}leaf`, 2, false)}" stroke="${stroke}" stroke-width="2" fill="none" stroke-linecap="round"/>`,
-        );
-      } else {
-        // A cased opening (or a door with no leaf): the head above, dashed.
-        out.push(`<path d="${sketchLine(i0, i1, `${op.id}h1`, 1, false)}${sketchLine(o0, o1, `${op.id}h2`, 1, false)}" stroke="${stroke}" stroke-width="0.9" fill="none" stroke-dasharray="6 4"/>`);
-      }
-      // Its width, outside the wall.
-      const out0 = S(op.outside[0]);
-      const out1 = S(op.outside[1]);
-      const ins = S(op.inside[0]);
-      const away = [out0[0] - ins[0], out0[1] - ins[1]];
-      const al = Math.hypot(away[0]!, away[1]!) || 1;
-      const tx = (out0[0] + out1[0]) / 2 + (away[0]! / al) * 12;
-      const ty = (out0[1] + out1[1]) / 2 + (away[1]! / al) * 12 + 4;
-      if (Math.hypot(out1[0] - out0[0], out1[1] - out0[1]) > 26) out.push(`<text class="sk-text" x="${f1(tx)}" y="${f1(ty)}" text-anchor="middle" font-size="11" opacity="0.8">${esc(shopText(fmt(op.width)))}</text>`);
+      out.push(openingMarkup(op, on ? ACCENT : INK, S));
     }
     out.push(roomDims(r, S));
+    return out.join('');
+  }
+
+  /** Stretches of wall, hatched (a room's side, or a wall piece). */
+  function wallMarkup(key: string, pieces: P2[][], stroke: string, S: (p: P2) => P2): string {
+    const out: string[] = [];
+    for (const [k, piece] of pieces.entries()) {
+      const pts = piece.map(S);
+      out.push(`<path d="M${pts.map((p) => p.map(f1).join(',')).join('L')}Z" fill="#efe7d6"/>`);
+      out.push(`<path d="M${pts.map((p) => p.map(f1).join(',')).join('L')}Z" fill="url(#pv-hatch)"/>`);
+      out.push(`<path d="${sketchPoly(pts, `${key}:${k}`)}" fill="none" stroke="${stroke}" stroke-width="1.7" stroke-linecap="round"/>`);
+    }
+    return out.join('');
+  }
+
+  /** A window (sills and glass), a door (its leaf and swing) or a cased opening, and its width when there's room. */
+  function openingMarkup(op: PlanWallOpening, stroke: string, S: (p: P2) => P2): string {
+    const out: string[] = [];
+    const [i0, i1] = op.inside.map(S) as [P2, P2];
+    const [o0, o1] = op.outside.map(S) as [P2, P2];
+    if (op.kind === 'window') {
+      // Sill lines on both faces and the glass between them.
+      const mid = (a: P2, b: P2): P2 => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+      const [m0, m1] = [mid(i0, o0), mid(i1, o1)];
+      const off = (p: P2, q: P2, t: number): P2 => [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t];
+      out.push(
+        `<path d="${sketchLine(i0, i1, `${op.id}w1`, 1, false)}${sketchLine(o0, o1, `${op.id}w2`, 1, false)}" stroke="${stroke}" stroke-width="1.2" fill="none"/>`,
+        `<path d="${sketchLine(off(m0, i0, 0.25), off(m1, i1, 0.25), `${op.id}g1`, 1, false)}${sketchLine(off(m0, o0, 0.25), off(m1, o1, 0.25), `${op.id}g2`, 1, false)}" stroke="${stroke}" stroke-width="0.9" fill="none"/>`,
+      );
+    } else if (op.door) {
+      const h = S(op.door.hinge);
+      const leaf = S(op.door.leaf);
+      out.push(
+        `<path d="${sketchCurve(op.door.arc.map(S), `${op.id}arc`)}" stroke="${stroke}" stroke-width="0.9" fill="none" stroke-dasharray="2 3"/>`,
+        `<path d="${sketchLine(h, leaf, `${op.id}leaf`, 2, false)}" stroke="${stroke}" stroke-width="2" fill="none" stroke-linecap="round"/>`,
+      );
+    } else {
+      // A cased opening (or a door with no leaf): the head above, dashed.
+      out.push(`<path d="${sketchLine(i0, i1, `${op.id}h1`, 1, false)}${sketchLine(o0, o1, `${op.id}h2`, 1, false)}" stroke="${stroke}" stroke-width="0.9" fill="none" stroke-dasharray="6 4"/>`);
+    }
+    // Its width, outside the wall.
+    const out0 = S(op.outside[0]);
+    const out1 = S(op.outside[1]);
+    const ins = S(op.inside[0]);
+    const away = [out0[0] - ins[0], out0[1] - ins[1]];
+    const al = Math.hypot(away[0]!, away[1]!) || 1;
+    const tx = (out0[0] + out1[0]) / 2 + (away[0]! / al) * 12;
+    const ty = (out0[1] + out1[1]) / 2 + (away[1]! / al) * 12 + 4;
+    if (Math.hypot(out1[0] - out0[0], out1[1] - out0[1]) > 26) out.push(`<text class="sk-text" x="${f1(tx)}" y="${f1(ty)}" text-anchor="middle" font-size="11" opacity="0.8">${esc(shopText(fmt(op.width)))}</text>`);
     return out.join('');
   }
 

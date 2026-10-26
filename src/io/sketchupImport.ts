@@ -10,6 +10,7 @@ import { formatInches, UNITS_PER_INCH } from '../model/units';
 import { apply, eulerXYZ, mul, rotate, transpose, union, worldBoxes, type Affine, type Mat3 } from '../model/world';
 import { cleanLoop, fitArcs, roundFit, type FitPoint } from './arcFit';
 import { BLOCKOUT_MATERIAL, type ColladaMaterial, type ColladaNode, type ColladaScene } from './collada';
+import { recognize, type Recognized } from './recognize';
 
 /**
  * SketchUp model (read from .dae) → editable parts. Each group or component with its own faces
@@ -32,6 +33,13 @@ export interface ImportSummary {
   /** Flat faces and stray geometry with no thickness. */
   skipped: number;
   materialsAdded: string[];
+  /** What became the app's own pieces (with `recognize`). */
+  recognized?: Recognized;
+}
+
+export interface ImportOptions {
+  /** Make what it recognizes (walls, with their doors and windows) the app's own pieces. */
+  recognize?: boolean;
 }
 
 export interface SketchUpImport {
@@ -173,7 +181,7 @@ const key = (p: V3) => `${Math.round(p[0] * 20)},${Math.round(p[1] * 20)},${Math
 
 // ── Intermediate result, all in world (model) coordinates ────────────────
 
-interface IRPart {
+export interface IRPart {
   kind: 'part';
   name: string;
   /** Local axes as columns. */
@@ -190,14 +198,42 @@ interface IRPart {
   grain: Grain;
   mat: ColladaMaterial | null;
   simplified: boolean;
+  /** An extrusion's cap outline, world points: the outer ring first, then its holes (a wall's windows). */
+  loops?: V3[][];
 }
-interface IRAsm {
+export interface IRAsm {
   kind: 'asm';
   name: string;
   R: Mat3;
   children: IR[];
 }
-type IR = IRPart | IRAsm;
+/** Something recognized as one of the app's own pieces (a wall piece, a cabinet): an assembly made by a generator. */
+export interface IRNative {
+  kind: 'native';
+  name: string;
+  /** Its frame (columns) and the world position of its origin. */
+  R: Mat3;
+  o: V3;
+  /** Its extent in that frame, from the origin (for placement). */
+  size: V3;
+  generator: { type: string; params: Record<string, unknown> };
+}
+export type IR = IRPart | IRAsm | IRNative;
+
+/**
+ * A flat face, or one flat region of an open surface: what a SketchUp model marks a door or window
+ * on a wall with. World, model units.
+ */
+export interface Flat {
+  name: string;
+  /** Unit normal (either way) and the plane's offset along it. */
+  normal: V3;
+  offset: number;
+  points: V3[];
+  area: number;
+  /** The part the same surface was imported as, if any: dropped when the flat turns out to be a marker. */
+  source?: IRPart;
+}
 type IRShape =
   | { type: 'box'; params: { x: number; y: number; z: number } }
   | { type: 'outline'; params: { axis: 'x' | 'y' | 'z'; thickness: number; points: FitPoint[] } };
@@ -292,11 +328,12 @@ function extrusion(name: string, tris: Tri[], d: V3, u: V3, mat: ColladaMaterial
   const rings = loops
     .map((l) => {
       const exact = cleanLoop(l.map(to2));
-      return { exact, faceted: simplify(exact.map(([x, y]): V2 => [Math.round(x), Math.round(y)])) };
+      return { l, exact, faceted: simplify(exact.map(([x, y]): V2 => [Math.round(x), Math.round(y)])) };
     })
     .filter((r) => r.faceted.length >= 3);
   if (!rings.length) return null;
   rings.sort((p, q) => Math.abs(signedArea(q.exact)) - Math.abs(signedArea(p.exact)));
+  const capLoops = rings.map((r) => r.l);
   let { exact, faceted: outer } = rings[0]!;
   if (signedArea(exact) < 0) [exact, outer] = [[...exact].reverse(), [...outer].reverse()];
   const area = (ts: Tri[]) => ts.reduce((s, x) => s + x.area, 0);
@@ -307,14 +344,14 @@ function extrusion(name: string, tris: Tri[], d: V3, u: V3, mat: ColladaMaterial
   // Grain runs the long way: along the length of a stick or dowel, else the longer side of a panel.
   const grain = LETTERS[[a, b, dAxis].sort((i, j) => size[j]! - size[i]!)[0]!]!;
   const rect = outer.length === 4 && outer.every(([x, y]) => (x === 0 || x === size[a]) && (y === 0 || y === size[b]));
-  if (rect) return { kind: 'part', name, R, o, size, shape: { type: 'box', params: { x: size[0], y: size[1], z: size[2] } }, thickness: t, grain, mat, simplified };
+  if (rect) return { kind: 'part', name, R, o, size, shape: { type: 'box', params: { x: size[0], y: size[1], z: size[2] } }, thickness: t, grain, mat, simplified, loops: capLoops };
   const outline = (points: FitPoint[]): IRShape => ({ type: 'outline', params: { axis: LETTERS[dAxis]!, thickness: t, points } });
   const facets = outline(outer.map((at) => ({ at })));
   const fitted = fitArcs(exact);
   const curved = fitted && roundFit(fitted);
-  if (!curved) return { kind: 'part', name, R, o, size, shape: facets, thickness: t, grain, mat, simplified };
+  if (!curved) return { kind: 'part', name, R, o, size, shape: facets, thickness: t, grain, mat, simplified, loops: capLoops };
   const round = curved.every((p) => p.sag);
-  return { kind: 'part', name, R, o, size, shape: outline(curved), alt: [facets], round, thickness: t, grain, mat, simplified };
+  return { kind: 'part', name, R, o, size, shape: outline(curved), alt: [facets], round, thickness: t, grain, mat, simplified, loops: capLoops };
 }
 
 /** Closed loops of a cap's outline edges, as 3D points. */
@@ -396,6 +433,41 @@ interface WalkState {
   skipped: number;
   /** Inverse rotation of the file frame. */
   unframe: Mat3;
+  /** Flat faces and the flat regions of open surfaces, for the recognizer (door and window marks on walls). */
+  flats: Flat[];
+}
+
+/** Coplanar within 1/32". */
+const FLAT_TOL = 2;
+
+/** Whether some edge belongs to one triangle only: an open surface or a lone face, not a closed solid. */
+function isOpen(tris: Tri[]): boolean {
+  const count = new Map<string, number>();
+  for (const t of tris) {
+    const ks = t.p.map(key);
+    for (let i = 0; i < 3; i++) {
+      const [a, b] = [ks[i]!, ks[(i + 1) % 3]!];
+      const k = a < b ? `${a}|${b}` : `${b}|${a}`;
+      count.set(k, (count.get(k) ?? 0) + 1);
+    }
+  }
+  for (const n of count.values()) if (n === 1) return true;
+  return false;
+}
+
+/** A surface's flat regions: its triangles by plane, then by what touches. */
+function flatRegions(tris: Tri[]): { normal: V3; offset: number; tris: Tri[] }[] {
+  const planes: { normal: V3; offset: number; tris: Tri[] }[] = [];
+  for (const t of tris) {
+    const d = dot(t.n, t.p[0]);
+    const plane = planes.find((q) => {
+      const c = dot(q.normal, t.n);
+      return Math.abs(c) > PAR && Math.abs(d * Math.sign(c) - q.offset) < FLAT_TOL;
+    });
+    if (plane) plane.tris.push(t);
+    else planes.push({ normal: t.n, offset: d, tris: [t] });
+  }
+  return planes.flatMap((plane) => pieces(plane.tris).map((ts) => ({ normal: plane.normal, offset: plane.offset, tris: ts })));
 }
 
 function walk(node: ColladaNode, parentWorld: Affine, parentR: Mat3, state: WalkState): IR | null {
@@ -416,18 +488,25 @@ function walk(node: ColladaNode, parentWorld: Affine, parentR: Mat3, state: Walk
   }
   const solids = pieces(dedupe(tris));
   const name = pickName(node.name);
+  /** The flat regions of a solid that isn't closed, kept for the recognizer with what it became. */
+  const keepFlats = (solid: Tri[], source: IRPart | null) => {
+    if (!isOpen(solid)) return;
+    for (const r of flatRegions(solid)) {
+      const points = [...new Map(r.tris.flatMap((t) => t.p).map((p) => [key(p), p] as const)).values()];
+      state.flats.push({ name: node.name, normal: r.normal, offset: r.offset, points, area: r.tris.reduce((s, t) => s + t.area, 0), ...(source && { source }) });
+    }
+  };
   // Fit in the frame the result will live in: the group's own when it becomes an assembly.
   const fitIn = (frame: Mat3, label: (i: number) => string) =>
     solids
       .map((solid, i) => {
         const Ft = transpose(frame);
         const local = solid.map((t) => ({ ...t, p: t.p.map((p) => rotate(Ft, p)) as [V3, V3, V3], n: rotate(Ft, t.n) }));
-        const part = fit(label(i), local, snap(mul(Ft, R)));
-        if (!part) {
-          state.skipped++;
-          return null;
-        }
-        return { ...part, R: mul(frame, part.R), o: rotate(frame, part.o) };
+        const fitted = fit(label(i), local, snap(mul(Ft, R)));
+        const part: IRPart | null = fitted && { ...fitted, R: mul(frame, fitted.R), o: rotate(frame, fitted.o), ...(fitted.loops && { loops: fitted.loops.map((l) => l.map((p) => rotate(frame, p))) }) };
+        keepFlats(solid, part);
+        if (!part) state.skipped++;
+        return part;
       })
       .filter((p): p is IRPart => p !== null);
 
@@ -458,6 +537,7 @@ function dedupe(tris: Tri[]): Tri[] {
 
 function corners(ir: IR): V3[] {
   if (ir.kind === 'asm') return ir.children.flatMap(corners);
+  // A part or a recognized piece: its box in its frame.
   const out: V3[] = [];
   for (let i = 0; i < 8; i++) {
     const local: V3 = [i & 1 ? ir.size[0] : 0, i & 2 ? ir.size[1] : 0, i & 4 ? ir.size[2] : 0];
@@ -474,11 +554,13 @@ const DEFAULT_MATERIAL = /^(material|default|frontcolor|backcolor|_*default_*mat
  * Builds the insertion for a parsed scene: one wrapper assembly, applied as a single undo step. Into
  * an empty model it keeps SketchUp's coordinates; otherwise it lands 12" to the right of the model.
  */
-export function importSketchUp(target: Doc, scene: ColladaScene, title = 'SketchUp import'): SketchUpImport {
+export function importSketchUp(target: Doc, scene: ColladaScene, title = 'SketchUp import', opts: ImportOptions = {}): SketchUpImport {
   const frame = fileFrame(scene);
-  const state: WalkState = { skipped: 0, unframe: transpose(orthonormal(frame.m)!) };
-  const roots = scene.nodes.map((n) => walk(n, frame, I3, state)).filter((r): r is IR => r !== null);
+  const state: WalkState = { skipped: 0, unframe: transpose(orthonormal(frame.m)!), flats: [] };
+  let roots = scene.nodes.map((n) => walk(n, frame, I3, state)).filter((r): r is IR => r !== null);
   if (!roots.length) throw new ModelError('the file has no solid geometry to import (only flat faces or lines)');
+  let recognized: Recognized | undefined;
+  if (opts.recognize) ({ roots, report: recognized } = recognize(roots, state.flats));
   const top: IRAsm =
     roots.length === 1 && roots[0]!.kind === 'asm'
       ? { ...roots[0]!, name: pickName(roots[0]!.name) || title }
@@ -490,7 +572,7 @@ export function importSketchUp(target: Doc, scene: ColladaScene, title = 'Sketch
     if (entityKind(target, p) === null && ![target.materials, target.parts, target.assemblies].some((c) => Object.keys(c).some((id) => id.startsWith(`${p}_`)))) prefix = p;
   }
 
-  const summary: ImportSummary = { boxes: 0, outlines: 0, blocks: 0, simplified: 0, skipped: state.skipped, materialsAdded: [] };
+  const summary: ImportSummary = { boxes: 0, outlines: 0, blocks: 0, simplified: 0, skipped: state.skipped, materialsAdded: [], ...(recognized && { recognized }) };
   const materialOps: Op[] = [];
   const nodeOps: Op[] = [];
   const known: Material[] = Object.values(target.materials);
@@ -552,17 +634,21 @@ export function importSketchUp(target: Doc, scene: ColladaScene, title = 'Sketch
   };
 
   const emit = (ir: IR, parentR: Mat3, parentO: V3, parent: string | null, id: string) => {
-    const o = ir.kind === 'part' ? ir.o : originOf(ir);
+    const o = ir.kind === 'asm' ? originOf(ir) : ir.o;
     const Pt = transpose(parentR);
     const transform = { position: rotate(Pt, sub(o, parentO)).map(Math.round) as V3, rotation: eulerXYZ(snap(mul(Pt, ir.R))) };
     if (ir.kind === 'part') {
       nodeOps.push(partOps(ir, { id, name: ir.name, transform }, parent!));
       return;
     }
+    if (ir.kind === 'native') {
+      nodeOps.push({ op: 'add', entity: { kind: 'assembly', id, name: ir.name, transform, generator: { type: ir.generator.type, params: ir.generator.params } }, parent });
+      return;
+    }
     nodeOps.push({ op: 'add', entity: { kind: 'assembly', id, name: ir.name, transform }, parent });
     // Children are placed against the rounded position so their world spots don't drift.
     const placed = apply({ m: parentR, t: parentO }, transform.position);
-    for (const c of ir.children) emit(c, ir.R, placed, id, nextId(c.kind === 'asm' ? 'a' : 'p'));
+    for (const c of ir.children) emit(c, ir.R, placed, id, nextId(c.kind === 'part' ? 'p' : 'a'));
   };
   emit(top, I3, scale(besideOffset(target, corners(top)), -1), null, prefix);
 

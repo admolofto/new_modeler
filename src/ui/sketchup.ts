@@ -37,7 +37,7 @@ export function mountSketchUp(o: SketchUpOptions): void {
     try {
       const title = file.name.replace(/\.(dae|skp)$/i, '') || 'SketchUp import';
       const scene = /\.skp$/i.test(file.name) ? await readSkp(file) : parseCollada(await file.text());
-      const insertion = importSketchUp(o.store.doc, scene, title);
+      const insertion = importSketchUp(o.store.doc, scene, title, { recognize: true });
       const result = o.store.dispatch(insertion.ops);
       if (!result.ok) throw new Error(result.error);
       o.selection.set(targetsOf(result.doc, [insertion.wrapperId]));
@@ -86,7 +86,7 @@ function pickFile(): Promise<File | null> {
   });
 }
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+const plural = (n: number, word: string, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
 
 export function describe(s: ImportSummary): string {
   const made = [s.boxes && plural(s.boxes, 'board'), s.outlines && plural(s.outlines, 'shaped part'), s.blocks && plural(s.blocks, 'blockout')].filter(Boolean);
@@ -95,5 +95,9 @@ export function describe(s: ImportSummary): string {
     s.skipped && `skipped ${plural(s.skipped, 'flat face')}`,
     s.materialsAdded.length && `added ${s.materialsAdded.join(', ')}`,
   ].filter(Boolean);
-  return `Imported ${made.join(', ') || 'nothing'}${notes.length ? ` (${notes.join('; ')})` : ''}. Undo removes it.`;
+  const r = s.recognized;
+  const native = r?.walls ? `${plural(r.walls, 'wall')} with ${plural(r.openings, 'door or window', 'doors and windows')}` : '';
+  const raw = made.join(', ');
+  const what = [native, raw && (native ? `and ${raw} as they were` : raw)].filter(Boolean).join(' ');
+  return `Imported ${what || 'nothing'}${notes.length ? ` (${notes.join('; ')})` : ''}. Undo removes it.`;
 }

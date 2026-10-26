@@ -249,6 +249,8 @@ export interface GeneratorDef<P = unknown> extends PluginBase<P> {
   materialRefs(params: P): string[];
   /** What it makes surrounds the model (the room): left out of fits, whole-model dims and placement. */
   surroundings?: true;
+  /** Surroundings placed by their transform (a wall piece), not by world coordinates: they move and turn like a cabinet. */
+  movable?: true;
   /** The AI snapshot shows it as one line plus user children (rooms, appliances). */
   collapse?: true;
   /** Faces its faceDrive doesn't claim can't be pushed or pulled (no per-part overrides). */

@@ -18,6 +18,7 @@ import {
   type RoomParams,
   type RoomSide,
 } from '../plugins/generators/room';
+import { wallCut, type WallPieceParams } from '../plugins/generators/wall';
 import { isSolid, modelPartIds } from './decor';
 import { descendants } from './doc';
 import { generatedOwner, genPartId } from './generate';
@@ -39,6 +40,8 @@ export type { RoomOpening, RoomParams, RoomSide } from '../plugins/generators/ro
 /** Every room in the doc (one is the rule; the snapshot and tools use the first). */
 export const rooms = (doc: Doc): Assembly[] => Object.values(doc.assemblies).filter((a) => a.generator?.type === 'room');
 export const roomOf = (doc: Doc): Assembly | null => rooms(doc)[0] ?? null;
+/** Every wall piece (a floor plan's walls, each on its own: the `wall` generator). */
+export const wallPieces = (doc: Doc): Assembly[] => Object.values(doc.assemblies).filter((a) => a.generator?.type === 'wall');
 export const roomParams = (asm: Assembly): RoomParams => asm.generator!.params as unknown as RoomParams;
 
 const built = (p: RoomParams, side: RoomSide) => p.walls.includes(side);
@@ -303,7 +306,9 @@ export function roomInterior(doc: Doc): { min: V3; max: V3; eyeHeight: number } 
 
 /** A wall and what it hosts (its windows, casings, baseboards and door folders): hidden together. */
 export interface ShellWall {
-  side: RoomSide;
+  /** A room's side; none for a wall piece. */
+  side?: RoomSide;
+  /** The room or wall piece it belongs to. */
   room: string;
   ids: string[];
   /** The middle of its inside face, and its way out of the room (world, model units). */
@@ -392,6 +397,25 @@ export function roomShell(doc: Doc): RoomShell {
         max: [p.right + thick(p, 'right'), p.height + (p.ceiling ? SLAB : 0), p.front + thick(p, 'front')],
       }),
     );
+  }
+  // Wall pieces: each its own wall, its front face its room side; it goes when the eye is behind it.
+  for (const asm of wallPieces(doc)) {
+    const p = asm.generator!.params as unknown as WallPieceParams;
+    const A = nodeAffine(doc, asm.id);
+    const id = (role: string) => genPartId(asm.id, role);
+    const T = p.thickness;
+    const generated = descendants(doc, asm.id).filter((c) => (doc.parts[c] ?? doc.assemblies[c])?.role !== undefined);
+    shell.shellIds.push(...generated);
+    const hosted = p.openings.flatMap((o) => [id(`window-${o.id}`), id(`casing-${o.id}`), id(`casing-back-${o.id}`), id(`door-${o.id}`)]);
+    const ids = [id('wall'), ...hosted].filter(exists);
+    const outward = rotate(A.m, [0, 0, -1]);
+    shell.walls.push({ room: asm.id, ids, point: apply(A, [p.length / 2, p.height / 2, T]), outward });
+    for (const o of p.openings) {
+      if (o.kind !== 'window' || !exists(id(`window-${o.id}`))) continue;
+      const w = wallCut(o);
+      shell.windows.push({ id: o.id, part: id(`window-${o.id}`), center: apply(A, [w.x + w.w / 2, w.y + w.h / 2, T / 2]), outward, area: w.w * w.h });
+    }
+    bounds.push(transformBox(A, { min: [0, 0, 0], max: [p.length, p.height, T] }));
   }
   shell.bounds = bounds.length ? union(bounds) : null;
   shells.set(doc, shell);

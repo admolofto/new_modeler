@@ -85,7 +85,8 @@ export function insideRoom(doc: Doc, p: V3, t: V3): V3 {
     if (at > 0 || rate <= 1e-9) return;
     s = Math.min(s, -at / rate);
   };
-  for (const w of shell.walls) limit(w.point, w.outward);
+  // A room's walls bound it; wall pieces stand on both sides of a house's rooms.
+  for (const w of shell.walls) if (w.side) limit(w.point, w.outward);
   for (const c of shell.ceilings) {
     if (t[0] >= c.min[0] && t[0] <= c.max[0] && t[2] >= c.min[1] && t[2] <= c.max[1]) limit([t[0], c.height, t[2]], [0, 1, 0]);
   }
