@@ -233,6 +233,16 @@ Hidden entities and entities on hidden tags are left out of a `.skp` import.
   door (a cased opening over 42" wide), higher up a window. A wall's front, where window
   stools are and doors swing to, faces its room: the side with another wall beyond it,
   else the side with cabinets in front of it.
+- **Cabinets and countertops are recognized:** a group of boards that is a cabinet box
+  becomes a generated cabinet (in a **Cabinets** folder) with working doors and drawers.
+  Boards are known by the names cabinet extensions give them (`left_side`, `top`, `back`,
+  `riser`, `door_1_lh`, `drawer_2_drawer_face`, `shelf_1`…), else by shape and place: the
+  sides, top, bottom and back make the box (an applied or inset back), a riser or kick
+  under it the toe kick, drawer fronts stack top-down over one door or a pair (hinged as
+  `lh` / `rh` say, even when drawn swung open), and the shelves. What the cabinet doesn't
+  make (a closet rod) stays in it as drawn; a group it can't build (doors over drawers,
+  more than two doors) stays as imported. A 3/4"–3" slab with its top 28"–46" up, lying
+  on cabinets, becomes a **Countertop** of slab stock.
 - A wall piece moves and turns like a cabinet; push / pull its end, top or faces for its
   length, height and thickness; click a face for **Add window / door / opening here**. The
   2D plan draws it hatched with its doors' swings, and the cutaway steps it aside like a

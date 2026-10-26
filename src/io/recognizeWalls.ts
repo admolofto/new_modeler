@@ -302,7 +302,7 @@ export function recognizeWalls(parts: IRPart[], flats: Flat[]): WallsFound {
     const params: Omit<WallPieceParams, 'finishes'> = { length: L, height: H, thickness: T, openings: list, casings: 'both' };
     // SketchUp walls are seldom named; a name that says wall is kept.
     const name = /wall/i.test(w.part.name) ? w.part.name : `Wall ${++n}`;
-    return { kind: 'native', name, R: fromColumns(x, UP, z), o, size: [L, H, T], generator: { type: 'wall', params: params as unknown as Record<string, unknown> } };
+    return { kind: 'native', name, R: fromColumns(x, UP, z), o, size: [L, H, T], generator: { type: 'wall', params: params as unknown as Record<string, unknown> }, fallback: w.part };
   });
   return { walls: natives, consumed, openings };
 }

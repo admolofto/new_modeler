@@ -71,7 +71,7 @@ describe('recognizing walls in a SketchUp import', () => {
       box('cabinet', [I(30), I(34), I(24)], [I(100), 0, I(96)]),
     ]);
     const { doc, summary } = importSketchUp(emptyDoc(), s, 'House', { recognize: true });
-    expect(summary.recognized).toEqual({ walls: 2, openings: 2 });
+    expect(summary.recognized).toEqual({ walls: 2, openings: 2, cabinets: 0, counters: 0 });
     const [a, b] = walls(doc).sort((x, y) => x.box.min[2] - y.box.min[2]);
     // The first faces +z (toward the other wall); the window from its hole, the door from the inner outline.
     expect(a!.asm.transform.rotation).toEqual([0, 0, 0]);

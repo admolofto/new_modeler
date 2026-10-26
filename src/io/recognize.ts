@@ -1,16 +1,19 @@
 import type { Mat3 } from '../model/world';
+import { cabinetFrom, isCounter } from './recognizeCasework';
 import { recognizeWalls } from './recognizeWalls';
-import type { Flat, IR, IRAsm, IRPart } from './sketchupImport';
+import type { Flat, IR, IRAsm, IRNative, IRPart } from './sketchupImport';
 
 /**
- * Recognizing an imported SketchUp model: what of it is one of the app's own pieces — walls, with
- * their doors and windows — comes out of the raw tree and is made by its generator instead (in a
- * "Walls" folder). What isn't recognized stays as it was imported.
+ * Recognizing an imported SketchUp model: what of it is one of the app's own pieces comes out of the
+ * raw tree and is made by its generator instead — walls (with their doors and windows) in a "Walls"
+ * folder, cabinets and countertops in a "Cabinets" one. What isn't recognized stays as it was imported.
  */
 
 export interface Recognized {
   walls: number;
   openings: number;
+  cabinets: number;
+  counters: number;
 }
 
 const I3: Mat3 = [
@@ -29,9 +32,30 @@ function prune(ir: IR, gone: Set<IRPart>): IR | null {
   return children.length ? { ...ir, children } : null;
 }
 
+/** The tree less the groups that are cabinets (collected in `found`). */
+function takeCabinets(ir: IR, found: IRNative[]): IR | null {
+  if (ir.kind !== 'asm') return ir;
+  const cabinet = cabinetFrom(ir);
+  if (cabinet) {
+    found.push(cabinet);
+    return null;
+  }
+  const children = ir.children.map((c) => takeCabinets(c, found)).filter((c): c is IR => c !== null);
+  return children.length ? { ...ir, children } : null;
+}
+
 export function recognize(roots: IR[], flats: Flat[]): { roots: IR[]; report: Recognized } {
   const walls = recognizeWalls(roots.flatMap(partsOf), flats);
-  const rest = roots.map((r) => prune(r, walls.consumed)).filter((r): r is IR => r !== null);
-  const folder: IRAsm[] = walls.walls.length ? [{ kind: 'asm', name: 'Walls', R: I3, children: walls.walls }] : [];
-  return { roots: [...folder, ...rest], report: { walls: walls.walls.length, openings: walls.openings } };
+  const cabinets: IRNative[] = [];
+  let rest = roots
+    .map((r) => prune(r, walls.consumed))
+    .map((r) => r && takeCabinets(r, cabinets))
+    .filter((r): r is IR => r !== null);
+  const counters = rest.flatMap(partsOf).filter((p) => isCounter(p, cabinets));
+  rest = rest.map((r) => prune(r, new Set(counters))).filter((r): r is IR => r !== null);
+  counters.forEach((p, i) => Object.assign(p, { name: counters.length > 1 ? `Countertop ${i + 1}` : 'Countertop', slab: true }));
+  const folders: IRAsm[] = [];
+  if (walls.walls.length) folders.push({ kind: 'asm', name: 'Walls', R: I3, children: walls.walls });
+  if (cabinets.length || counters.length) folders.push({ kind: 'asm', name: 'Cabinets', R: I3, children: [...cabinets, ...counters] });
+  return { roots: [...folders, ...rest], report: { walls: walls.walls.length, openings: walls.openings, cabinets: cabinets.length, counters: counters.length } };
 }

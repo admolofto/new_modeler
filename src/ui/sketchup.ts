@@ -96,8 +96,13 @@ export function describe(s: ImportSummary): string {
     s.materialsAdded.length && `added ${s.materialsAdded.join(', ')}`,
   ].filter(Boolean);
   const r = s.recognized;
-  const native = r?.walls ? `${plural(r.walls, 'wall')} with ${plural(r.openings, 'door or window', 'doors and windows')}` : '';
+  const native = [
+    r?.walls && `${plural(r.walls, 'wall')} with ${plural(r.openings, 'door or window', 'doors and windows')}`,
+    r?.cabinets && plural(r.cabinets, 'cabinet'),
+    r?.counters && plural(r.counters, 'countertop'),
+  ].filter(Boolean).join(', ');
   const raw = made.join(', ');
   const what = [native, raw && (native ? `and ${raw} as they were` : raw)].filter(Boolean).join(' ');
+  if (s.unrecognized) notes.unshift(`${plural(s.unrecognized, 'piece')} came in as drawn: the app couldn't build ${s.unrecognized === 1 ? 'it' : 'them'}`);
   return `Imported ${what || 'nothing'}${notes.length ? ` (${notes.join('; ')})` : ''}. Undo removes it.`;
 }

@@ -35,6 +35,8 @@ export interface ImportSummary {
   materialsAdded: string[];
   /** What became the app's own pieces (with `recognize`). */
   recognized?: Recognized;
+  /** Recognized pieces whose generator wouldn't take them: imported as they were instead. */
+  unrecognized?: number;
 }
 
 export interface ImportOptions {
@@ -200,6 +202,8 @@ export interface IRPart {
   simplified: boolean;
   /** An extrusion's cap outline, world points: the outer ring first, then its holes (a wall's windows). */
   loops?: V3[][];
+  /** Cut from slab stock (a countertop): its material is a slab. */
+  slab?: true;
 }
 export interface IRAsm {
   kind: 'asm';
@@ -217,6 +221,12 @@ export interface IRNative {
   /** Its extent in that frame, from the origin (for placement). */
   size: V3;
   generator: { type: string; params: Record<string, unknown> };
+  /** Params naming a material (`material`, `backMaterial`…): what each is cut from, matched to a model material as it's added. */
+  materials?: Record<string, { mat: ColladaMaterial | null; thickness: number }>;
+  /** What stays in it as it was (a closet's rod). */
+  children?: IR[];
+  /** What it was, imported instead if the generator won't take its params. */
+  fallback: IR;
 }
 export type IR = IRPart | IRAsm | IRNative;
 
@@ -580,12 +590,13 @@ export function importSketchUp(target: Doc, scene: ColladaScene, title = 'Sketch
   let counter = 0;
   const nextId = (kind: string) => `${prefix}_${kind}${++counter}`;
 
-  const materialFor = (p: IRPart): string => {
+  const materialFor = (p: Pick<IRPart, 'mat' | 'thickness' | 'slab'>): string => {
     const named = p.mat && !DEFAULT_MATERIAL.test(p.mat.name.trim()) ? p.mat.name.trim() : '';
-    const cacheKey = `${normName(named)}|${p.thickness}`;
+    const cacheKey = `${normName(named)}|${p.thickness}|${p.slab ? 'slab' : ''}`;
     const hit = chosen.get(cacheKey);
     if (hit) return hit;
-    const thick = (m: Material) => Math.abs(m.thickness - p.thickness) <= 1;
+    // A slab (a countertop) only matches slabs; boards only boards.
+    const thick = (m: Material) => Math.abs(m.thickness - p.thickness) <= 1 && (m.stock === 'slab') === !!p.slab;
     const byName = (m: Material) => !!named && (normName(m.name) === normName(named) || normName(m.id) === normName(named));
     let id =
       known.find((m) => byName(m) && thick(m))?.id ??
@@ -602,9 +613,11 @@ export function importSketchUp(target: Doc, scene: ColladaScene, title = 'Sketch
       })();
     if (!id) {
       id = nextId('m');
-      const base = named || `Imported ${formatInches(p.thickness)}`;
+      const base = named || (p.slab ? `Countertop ${formatInches(p.thickness)}` : `Imported ${formatInches(p.thickness)}`);
       const name = known.some((m) => m.name === base) ? `${base} ${formatInches(p.thickness)}` : base;
-      const m: Material = { id, name, thickness: p.thickness, color: p.mat?.color ?? '#d9b98b', stock: p.thickness > UNITS_PER_INCH ? 'solid' : 'sheet' };
+      const m: Material = p.slab
+        ? { id, name, thickness: p.thickness, color: p.mat?.color ?? '#eeece8', stock: 'slab', ...(!p.mat?.color && { finish: { preset: 'stone:quartz-white' } }) }
+        : { id, name, thickness: p.thickness, color: p.mat?.color ?? '#d9b98b', stock: p.thickness > UNITS_PER_INCH ? 'solid' : 'sheet' };
       materialOps.push({ op: 'add', entity: { kind: 'material', ...m } });
       known.push(m);
       summary.materialsAdded.push(name);
@@ -642,7 +655,19 @@ export function importSketchUp(target: Doc, scene: ColladaScene, title = 'Sketch
       return;
     }
     if (ir.kind === 'native') {
-      nodeOps.push({ op: 'add', entity: { kind: 'assembly', id, name: ir.name, transform, generator: { type: ir.generator.type, params: ir.generator.params } }, parent });
+      const params = structuredClone(ir.generator.params);
+      for (const [key, made] of Object.entries(ir.materials ?? {})) params[key] = materialFor(made);
+      const op: Op = { op: 'add', entity: { kind: 'assembly', id, name: ir.name, transform, generator: { type: ir.generator.type, params } }, parent: null };
+      // Tried alone first: params the generator won't take bring back what it was, as imported.
+      const scratch = emptyDoc();
+      const mats = Object.values(ir.materials ?? {}).map(materialFor).filter((m, i, all) => all.indexOf(m) === i && !scratch.materials[m]);
+      if (!applyOps(scratch, [...mats.map((m): Op => ({ op: 'add', entity: { kind: 'material', ...known.find((k) => k.id === m)! } })), op]).ok) {
+        summary.unrecognized = (summary.unrecognized ?? 0) + 1;
+        return emit(ir.fallback, parentR, parentO, parent, id);
+      }
+      nodeOps.push({ ...op, parent });
+      const placed = apply({ m: parentR, t: parentO }, transform.position);
+      for (const c of ir.children ?? []) emit(c, ir.R, placed, id, nextId(c.kind === 'part' ? 'p' : 'a'));
       return;
     }
     nodeOps.push({ op: 'add', entity: { kind: 'assembly', id, name: ir.name, transform }, parent });
